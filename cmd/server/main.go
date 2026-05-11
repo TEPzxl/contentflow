@@ -1,7 +1,13 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/tepzxl/contentflow/internal/app"
+)
 
 func main() {
-	fmt.Println("server starting ...")
+	if err := app.Run(); err != nil {
+		fmt.Println("run contentflow server: %v", err)
+	}
 }
