@@ -1,0 +1,15 @@
+app:
+  name: contentflow
+  env: dev
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+log:
+  level: debug
+  format: json # 控制输出格式: text/ json
+  add_source: false # 是否打印源码位置

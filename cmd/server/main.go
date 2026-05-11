@@ -1,13 +1,15 @@
 package main
 
 import (
-	"fmt"
+	"log/slog"
+	"os"
 
 	"github.com/tepzxl/contentflow/internal/app"
 )
 
 func main() {
 	if err := app.Run(); err != nil {
-		fmt.Println("run contentflow server: %v", err)
+		slog.Error("run server failed", slog.Any("error", err))
+		os.Exit(1)
 	}
 }

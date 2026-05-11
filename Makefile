@@ -4,6 +4,10 @@ APP_NAME := contentflow
 run:
 	@go run ./cmd/server
 
+.PHONY: dev
+dev:
+	@go run ./cmd/server
+
 .PHONY: tidy
 tidy:
 	@go mod tidy
