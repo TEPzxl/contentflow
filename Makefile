@@ -1,25 +1,30 @@
 APP_NAME := contentflow
 
-.PHONY: run
+.PHONY: run dev tidy fmt test build compose-up compose-down compose-logs
+
+compose-up:
+	@docker compose -f deployments/docker-compose.yaml up -d
+
+compose-down:
+	@docker compose -f deployments/docker-compose.yaml down
+
+compose-logs:
+	@docker compose -f deployments/docker-compose.yaml logs -f
+
 run:
 	@go run ./cmd/server
 
-.PHONY: dev
 dev:
 	@go run ./cmd/server
 
-.PHONY: tidy
 tidy:
 	@go mod tidy
 
-.PHONY: fmt
 fmt:
 	@go fmt ./...
 
-.PHONY: test
 test:
 	@go test ./...
 
-.PHONY: build
 build:
 	@go build -o $(APP_NAME) ./cmd/server

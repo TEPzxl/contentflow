@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/tepzxl/contentflow/internal/cache"
 	"github.com/tepzxl/contentflow/internal/config"
+	"github.com/tepzxl/contentflow/internal/database"
 	contenthttp "github.com/tepzxl/contentflow/internal/http"
 	"github.com/tepzxl/contentflow/internal/logger"
 )
@@ -26,8 +29,55 @@ func Run() error {
 		Format:    cfg.Log.Format,
 		AddSource: cfg.Log.AddSource,
 	})
+	if err != nil {
+		return fmt.Errorf("init logger: %w", err)
+	}
+	slog.SetDefault(log)
 
-	router := contenthttp.NewRouter(log)
+	ctx := context.Background()
+	db, err := database.NewPostgres(ctx, database.Config{
+		Host:            cfg.Database.Host,
+		Port:            cfg.Database.Port,
+		Username:        cfg.Database.Username,
+		Password:        cfg.Database.Password,
+		DBName:          cfg.Database.DBName,
+		SSLMode:         cfg.Database.SSLMode,
+		MaxOpenConns:    cfg.Database.MaxOpenConns,
+		MaxIdleConns:    cfg.Database.MaxIdleConns,
+		ConnMaxLifetime: cfg.Database.ConnMaxLifetime,
+	})
+	if err != nil {
+		return fmt.Errorf("init database: %w", err)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("get sql db: %w", err)
+	}
+	defer sqlDB.Close()
+	log.Info("postgres connected",
+		slog.String("host", cfg.Database.Host),
+		slog.Int("port", cfg.Database.Port),
+		slog.String("dbname", cfg.Database.DBName),
+	)
+
+	redisClient, err := cache.NewRedis(ctx, cache.RedisConfig{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+		PoolSize: cfg.Redis.PoolSize,
+	})
+	if err != nil {
+		return fmt.Errorf("init redis: %w", err)
+	}
+	defer redisClient.Close()
+
+	log.Info("redis connected",
+		slog.String("addr", cfg.Redis.Addr),
+		slog.Int("db", cfg.Redis.DB),
+	)
+
+	router := contenthttp.NewRouter(log, db, redisClient)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 

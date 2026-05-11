@@ -13,3 +13,20 @@ log:
   level: debug
   format: json # 控制输出格式: text/ json
   add_source: false # 是否打印源码位置
+
+database:
+  host: localhost
+  port: 5432
+  username: contentflow
+  password: contentflow
+  dbname: contentflow
+  sslmode: disable
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 30m
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+  pool_size: 10

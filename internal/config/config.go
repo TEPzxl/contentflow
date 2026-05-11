@@ -9,9 +9,11 @@ import (
 )
 
 type Config struct {
-	App    AppConfig    `mapstructure:"app"`
-	Server ServerConfig `mapstructure:"server"`
-	Log    LogConfig    `mapstructure:"log"`
+	App      AppConfig      `mapstructure:"app"`
+	Server   ServerConfig   `mapstructure:"server"`
+	Log      LogConfig      `mapstructure:"log"`
+	Database DatabaseConfig `mapstructure:"database"`
+	Redis    RedisConfig    `mapstructure:"redis"`
 }
 
 type AppConfig struct {
@@ -31,6 +33,25 @@ type LogConfig struct {
 	Level     string `mapstructure:"level"`
 	Format    string `mapstructure:"format"`
 	AddSource bool   `mapstructure:"add_source"`
+}
+
+type DatabaseConfig struct {
+	Host            string        `mapstructure:"host"`
+	Port            int           `mapstructure:"port"`
+	Username        string        `mapstructure:"username"`
+	Password        string        `mapstructure:"password"`
+	DBName          string        `mapstructure:"dbname"`
+	SSLMode         string        `mapstructure:"sslmode"`
+	MaxOpenConns    int           `mapstructure:"max_open_conns"`
+	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
+}
+
+type RedisConfig struct {
+	Addr     string `mapstructure:"addr"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
+	PoolSize int    `mapstructure:"pool_size"`
 }
 
 func Load(path string) (*Config, error) {
@@ -68,4 +89,19 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 	v.SetDefault("log.add_source", false)
+
+	v.SetDefault("database.host", "localhost")
+	v.SetDefault("database.port", 5432)
+	v.SetDefault("database.user", "contentflow")
+	v.SetDefault("database.password", "contentflow")
+	v.SetDefault("database.dbname", "contentflow")
+	v.SetDefault("database.ssl_mode", "disable")
+	v.SetDefault("database.max_open_conns", 25)
+	v.SetDefault("database.max_idle_conns", 5)
+	v.SetDefault("database.conn_max_lifetime", "30m")
+
+	v.SetDefault("redis.addr", "localhost:6379")
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.db", 0)
+	v.SetDefault("redis.pool_size", 10)
 }
