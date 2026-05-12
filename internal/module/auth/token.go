@@ -15,8 +15,11 @@ import (
 type TokenManager interface {
 	GenerateAccessToken(userID int64, email string) (string, time.Time, error)
 	GenerateRefreshToken() (string, string, error)
+	ParseAccessToken(tokenString string) (*AccessTokenClaims, error)
 	RefreshTokenTTL() time.Duration
 }
+
+var _ TokenManager = (*JWTTokenManager)(nil)
 
 type JWTTokenManager struct {
 	secret          []byte
@@ -103,4 +106,27 @@ func HashRefreshToken(token string) string {
 
 func (m *JWTTokenManager) RefreshTokenTTL() time.Duration {
 	return m.refreshTokenTTL
+}
+
+func (m *JWTTokenManager) ParseAccessToken(tokenString string) (*AccessTokenClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString,
+		&AccessTokenClaims{},
+		func(token *jwt.Token) (any, error) {
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, fmt.Errorf("unsupported signing method: %v", token.Header["alg"])
+			}
+			return m.secret, nil
+		},
+		jwt.WithIssuer(m.issuer),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("parse access token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*AccessTokenClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	return claims, nil
 }

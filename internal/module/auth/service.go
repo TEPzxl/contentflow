@@ -13,16 +13,23 @@ import (
 )
 
 var (
-	ErrEmailAlreadyExists = errors.New("email already exists")
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrInvalidEmail       = errors.New("invalid email")
-	ErrWeakPassword       = errors.New("weak password")
+	ErrEmailAlreadyExists  = errors.New("email already exists")
+	ErrInvalidCredentials  = errors.New("invalid credentials")
+	ErrInvalidEmail        = errors.New("invalid email")
+	ErrWeakPassword        = errors.New("weak password")
+	ErrInvalidRefreshToken = errors.New("invalid refresh token")
+	ErrUserNotFound        = errors.New("user not found")
 )
 
 type Service interface {
 	Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error)
 	Login(ctx context.Context, req LoginRequest) (*LoginResponse, error)
+	Refresh(ctx context.Context, req RefreshRequest) (*RefreshResponse, error)
+	Logout(ctx context.Context, req LogoutRequest) error
+	Me(ctx context.Context, userID int64) (*MeResponse, error)
 }
+
+var _ Service = (*AuthService)(nil)
 
 type AuthService struct {
 	userRepo         user.Repository
@@ -138,6 +145,99 @@ func (s *AuthService) Login(ctx context.Context, req LoginRequest) (*LoginRespon
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
 		ExpiresIn:    int64(time.Until(expiresAt).Seconds()),
+	}, nil
+}
+
+func (s *AuthService) Refresh(ctx context.Context, req RefreshRequest) (*RefreshResponse, error) {
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		return nil, ErrInvalidRefreshToken
+	}
+
+	now := s.now()
+	tokenHash := HashRefreshToken(refreshToken)
+
+	tokenRecord, err := s.refreshTokenRepo.FindValidByHash(ctx, tokenHash, now)
+	if errors.Is(err, ErrRefreshTokenNotFound) {
+		return nil, ErrInvalidRefreshToken
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("find refresh token: %w", err)
+	}
+
+	u, err := s.userRepo.FindByID(ctx, tokenRecord.UserID)
+	if errors.Is(err, user.ErrUserNotFound) {
+		return nil, ErrInvalidRefreshToken
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find user by id: %w", err)
+	}
+
+	if err := s.refreshTokenRepo.RevokeByHash(ctx, tokenHash, now); err != nil {
+		return nil, fmt.Errorf("revoke refresh token: %w", err)
+	}
+
+	accessToken, expiresAt, err := s.tokenManager.GenerateAccessToken(u.ID, u.Email)
+	if err != nil {
+		return nil, fmt.Errorf("generate access token: %w", err)
+	}
+
+	newRefreshToken, newRefreshTokenHash, err := s.tokenManager.GenerateRefreshToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	newTokenRecord := &RefreshToken{
+		UserID:    u.ID,
+		TokenHash: newRefreshTokenHash,
+		ExpiresAt: now.Add(s.tokenManager.RefreshTokenTTL()),
+	}
+	if err := s.refreshTokenRepo.Create(ctx, newTokenRecord); err != nil {
+		return nil, fmt.Errorf("create refresh token: %w", err)
+	}
+
+	if err := s.refreshTokenRepo.Create(ctx, newTokenRecord); err != nil {
+		return nil, fmt.Errorf("create new refresh token: %w", err)
+	}
+
+	return &RefreshResponse{
+		AccessToken:  accessToken,
+		RefreshToken: newRefreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int64(time.Until(expiresAt).Seconds()),
+		User:         AuthUser{ID: u.ID, Email: u.Email, DisplayName: u.DisplayName},
+	}, nil
+}
+
+func (s *AuthService) Logout(ctx context.Context, req LogoutRequest) error {
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		return ErrInvalidRefreshToken
+	}
+
+	tokenHash := HashRefreshToken(refreshToken)
+	if err := s.refreshTokenRepo.RevokeByHash(ctx, tokenHash, s.now()); err != nil {
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			return ErrInvalidRefreshToken
+		}
+		return fmt.Errorf("logout: %w", err)
+	}
+	return nil
+}
+
+func (s *AuthService) Me(ctx context.Context, userID int64) (*MeResponse, error) {
+	u, err := s.userRepo.FindByID(ctx, userID)
+	if errors.Is(err, user.ErrUserNotFound) {
+		return nil, ErrUserNotFound
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("find current user: %w", err)
+	}
+
+	return &MeResponse{
+		User: AuthUser{ID: u.ID, Email: u.Email, DisplayName: u.DisplayName},
 	}, nil
 }
 

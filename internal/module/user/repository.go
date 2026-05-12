@@ -20,6 +20,8 @@ type Repository interface {
 	FindByEmail(ctx context.Context, email string) (*User, error)
 }
 
+var _ Repository = (*GormRepository)(nil)
+
 type GormRepository struct {
 	db *gorm.DB
 }

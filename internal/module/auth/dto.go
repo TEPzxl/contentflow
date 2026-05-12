@@ -1,9 +1,9 @@
 package auth
 
 type RegisterRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	DisplayName string `json:"display_name"`
+	Email       string
+	Password    string
+	DisplayName string
 }
 
 type RegisterResponse struct {
@@ -11,8 +11,8 @@ type RegisterResponse struct {
 }
 
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email    string
+	Password string
 }
 
 type LoginResponse struct {
@@ -23,8 +23,28 @@ type LoginResponse struct {
 	ExpiresIn    int64
 }
 
+type RefreshRequest struct {
+	RefreshToken string
+}
+
+type RefreshResponse struct {
+	AccessToken  string
+	RefreshToken string
+	TokenType    string
+	ExpiresIn    int64
+	User         AuthUser
+}
+
+type LogoutRequest struct {
+	RefreshToken string
+}
+
+type MeResponse struct {
+	User AuthUser
+}
+
 type AuthUser struct {
-	ID          int64  `json:"id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name"`
+	ID          int64
+	Email       string
+	DisplayName string
 }

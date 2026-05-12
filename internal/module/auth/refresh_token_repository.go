@@ -18,6 +18,8 @@ type RefreshTokenRepository interface {
 	RevokeAllByUserID(ctx context.Context, userID int64, revokedAt time.Time) error
 }
 
+var _ RefreshTokenRepository = (*GormRefreshTokenRepository)(nil)
+
 type GormRefreshTokenRepository struct {
 	db *gorm.DB
 }

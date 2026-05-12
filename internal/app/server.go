@@ -16,6 +16,7 @@ import (
 	"github.com/tepzxl/contentflow/internal/config"
 	"github.com/tepzxl/contentflow/internal/database"
 	contenthttp "github.com/tepzxl/contentflow/internal/http"
+	"github.com/tepzxl/contentflow/internal/http/middleware"
 	"github.com/tepzxl/contentflow/internal/logger"
 	"github.com/tepzxl/contentflow/internal/module/auth"
 	"github.com/tepzxl/contentflow/internal/module/user"
@@ -95,8 +96,16 @@ func Run() error {
 	authService := auth.NewAuthService(userRepo, refreshTokenRepo, tokenManager)
 	authHandler := auth.NewHandler(authService)
 
+	authRequired := middleware.AuthRequired(func(token string) (int64, error) {
+		claims, err := tokenManager.ParseAccessToken(token)
+		if err != nil {
+			return 0, err
+		}
+		return claims.UserID, nil
+	})
+
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
-		auth.RegisterRoutes(api, authHandler)
+		auth.RegisterRoutes(api, authHandler, authRequired)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
