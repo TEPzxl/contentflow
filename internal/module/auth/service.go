@@ -31,6 +31,14 @@ type Service interface {
 
 var _ Service = (*AuthService)(nil)
 
+type Option func(*AuthService)
+
+func WithNow(now func() time.Time) Option {
+	return func(s *AuthService) {
+		s.now = now
+	}
+}
+
 type AuthService struct {
 	userRepo         user.Repository
 	refreshTokenRepo RefreshTokenRepository
@@ -38,13 +46,17 @@ type AuthService struct {
 	now              func() time.Time
 }
 
-func NewAuthService(userRepo user.Repository, refreshTokenRepo RefreshTokenRepository, tokenManager TokenManager) *AuthService {
-	return &AuthService{
+func NewService(userRepo user.Repository, refreshTokenRepo RefreshTokenRepository, tokenManager TokenManager, opts ...Option) *AuthService {
+	svc := &AuthService{
 		userRepo:         userRepo,
 		refreshTokenRepo: refreshTokenRepo,
 		tokenManager:     tokenManager,
 		now:              func() time.Time { return time.Now().UTC() },
 	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	return svc
 }
 
 func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
@@ -195,10 +207,6 @@ func (s *AuthService) Refresh(ctx context.Context, req RefreshRequest) (*Refresh
 	}
 	if err := s.refreshTokenRepo.Create(ctx, newTokenRecord); err != nil {
 		return nil, fmt.Errorf("create refresh token: %w", err)
-	}
-
-	if err := s.refreshTokenRepo.Create(ctx, newTokenRecord); err != nil {
-		return nil, fmt.Errorf("create new refresh token: %w", err)
 	}
 
 	return &RefreshResponse{

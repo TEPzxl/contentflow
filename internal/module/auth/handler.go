@@ -173,7 +173,7 @@ func (h *Handler) handleAuthError(c *gin.Context, err error) {
 	case errors.Is(err, ErrInvalidRefreshToken):
 		response.Error(c, http.StatusUnauthorized, "invalid_refresh_token", "invalid refresh token")
 	case errors.Is(err, ErrUserNotFound):
-		response.Error(c, http.StatusNotFound, "unauthorized", "user not found")
+		response.Error(c, http.StatusUnauthorized, "unauthorized", "user not found")
 	default:
 		response.Error(c, http.StatusInternalServerError, "internal_server_error", "internal server error")
 	}

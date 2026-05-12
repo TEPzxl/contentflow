@@ -1,7 +1,8 @@
 APP_NAME := contentflow
 DATABASE_URL ?= postgres://contentflow:contentflow@localhost:5432/contentflow?sslmode=disable
 
-.PHONY: run dev tidy fmt test build compose-up compose-down compose-logs migrate-up migrate-down migrate-version migrate-force
+.PHONY: run dev tidy fmt test build compose-up compose-down compose-logs migrate-up migrate-down migrate-version migrate-force \
+	mock
 
 compose-up:
 	@docker compose -f deployments/docker-compose.yaml up -d
@@ -24,6 +25,13 @@ migrate-version:
 migrate-force:
 	@test -n "$(VERSION)" || (echo "VERSION is required. Example: make migrate-force VERSION=1" && exit 1)
 		migrate -path migrations -database "$(DATABASE_URL)" force $(VERSION)
+
+mock:
+	@mockgen -source=internal/module/user/repository.go -destination=internal/module/user/mocks/repository_mock.go -package=usermocks
+	@mockgen -source=internal/module/auth/refresh_token_repository.go -destination=internal/module/auth/mocks/refresh_token_repository_mock.go -package=authmocks
+	@mockgen -source=internal/module/auth/token.go -destination=internal/module/auth/mocks/token_mock.go -package=authmocks
+	@mockgen -source=internal/module/auth/service.go -destination=internal/module/auth/mocks/service_mock.go -package=authmocks
+
 
 run:
 	@go run ./cmd/server

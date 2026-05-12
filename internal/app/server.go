@@ -93,7 +93,7 @@ func Run() error {
 	if err != nil {
 		return fmt.Errorf("init token manager: %w", err)
 	}
-	authService := auth.NewAuthService(userRepo, refreshTokenRepo, tokenManager)
+	authService := auth.NewService(userRepo, refreshTokenRepo, tokenManager)
 	authHandler := auth.NewHandler(authService)
 
 	authRequired := middleware.AuthRequired(func(token string) (int64, error) {
