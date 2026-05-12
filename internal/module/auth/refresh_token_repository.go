@@ -22,7 +22,7 @@ type GormRefreshTokenRepository struct {
 	db *gorm.DB
 }
 
-func NewGormRefreshTokenRepository(db *gorm.DB) *GormRefreshTokenRepository {
+func NewRefreshTokenRepository(db *gorm.DB) *GormRefreshTokenRepository {
 	return &GormRefreshTokenRepository{db: db}
 }
 

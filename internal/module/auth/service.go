@@ -72,6 +72,9 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 
 	if err := s.userRepo.Create(ctx, u); err != nil {
+		if errors.Is(err, user.ErrEmailAlreadyExists) {
+			return nil, ErrEmailAlreadyExists
+		}
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 	return &RegisterResponse{

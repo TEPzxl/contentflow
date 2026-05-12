@@ -80,8 +80,8 @@ func Run() error {
 		slog.Int("db", cfg.Redis.DB),
 	)
 
-	userRepo := user.NewGormRepository(db)
-	refreshTokenRepo := auth.NewGormRefreshTokenRepository(db)
+	userRepo := user.NewRepository(db)
+	refreshTokenRepo := auth.NewRefreshTokenRepository(db)
 
 	tokenManager, err := auth.NewJWTTokenManager(auth.JWTTokenManagerConfig{
 		Secret:          cfg.Auth.JWTSecret,
