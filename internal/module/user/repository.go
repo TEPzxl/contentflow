@@ -25,16 +25,14 @@ func NewGormRepository(db *gorm.DB) *GormRepository {
 }
 
 func (r *GormRepository) Create(ctx context.Context, u *User) error {
-	if err := r.db.Create(u).Error; err != nil {
+	if err := gorm.G[User](r.db).Create(ctx, u); err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
 	return nil
 }
 
 func (r *GormRepository) FindByID(ctx context.Context, id int64) (*User, error) {
-	var u User
-
-	err := r.db.WithContext(ctx).Where("id = ?", id).First(&u).Error
+	u, err := gorm.G[User](r.db).Where("id = ?", id).First(ctx)
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrUserNotFound
@@ -48,9 +46,7 @@ func (r *GormRepository) FindByID(ctx context.Context, id int64) (*User, error) 
 }
 
 func (r *GormRepository) FindByEmail(ctx context.Context, email string) (*User, error) {
-	var u User
-
-	err := r.db.WithContext(ctx).Where("email = ?", email).First(&u).Error
+	u, err := gorm.G[User](r.db).Where("email = ?", email).First(ctx)
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrUserNotFound
