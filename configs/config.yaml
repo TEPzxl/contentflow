@@ -30,3 +30,9 @@ redis:
   password: ""
   db: 0
   pool_size: 10
+
+auth:
+  access_token_ttl: 15m
+  refresh_token_ttl: 168h
+  jwt_secret: 3a18d44e399005f0b5f75af6e511372a800157c914a6fb4fcfa5d5473f542c7ed2a09474dd818d4d64c340b57e7f5d7ab251831b3c6ba1cd08667e01c2a0b51c
+  jwt_issuer: contentflow

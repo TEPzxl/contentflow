@@ -14,6 +14,14 @@ type Config struct {
 	Log      LogConfig      `mapstructure:"log"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Redis    RedisConfig    `mapstructure:"redis"`
+	Auth     AuthConfig     `mapstructure:"auth"`
+}
+
+type AuthConfig struct {
+	AccessTokenTTL  time.Duration `mapstructure:"access_token_ttl"`
+	RefreshTokenTTL time.Duration `mapstructure:"refresh_token_ttl"`
+	JWTSecret       string        `mapstructure:"jwt_secret"`
+	JWTIssuer       string        `mapstructure:"jwt_issuer"`
 }
 
 type AppConfig struct {
@@ -104,4 +112,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("redis.pool_size", 10)
+
+	v.SetDefault("auth.access_token_ttl", "15m")
+	v.SetDefault("auth.refresh_token_ttl", "168h")
+	v.SetDefault("auth.jwt_secret", "default secret")
+	v.SetDefault("auth.jwt_issuer", "contentflow")
 }

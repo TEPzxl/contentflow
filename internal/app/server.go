@@ -11,11 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tepzxl/contentflow/internal/cache"
 	"github.com/tepzxl/contentflow/internal/config"
 	"github.com/tepzxl/contentflow/internal/database"
 	contenthttp "github.com/tepzxl/contentflow/internal/http"
 	"github.com/tepzxl/contentflow/internal/logger"
+	"github.com/tepzxl/contentflow/internal/module/auth"
+	"github.com/tepzxl/contentflow/internal/module/user"
 )
 
 func Run() error {
@@ -77,7 +80,24 @@ func Run() error {
 		slog.Int("db", cfg.Redis.DB),
 	)
 
-	router := contenthttp.NewRouter(log, db, redisClient)
+	userRepo := user.NewGormRepository(db)
+	refreshTokenRepo := auth.NewGormRefreshTokenRepository(db)
+
+	tokenManager, err := auth.NewJWTTokenManager(auth.JWTTokenManagerConfig{
+		Secret:          cfg.Auth.JWTSecret,
+		Issuer:          cfg.Auth.JWTIssuer,
+		AccessTokenTTL:  cfg.Auth.AccessTokenTTL,
+		RefreshTokenTTL: cfg.Auth.RefreshTokenTTL,
+	})
+	if err != nil {
+		return fmt.Errorf("init token manager: %w", err)
+	}
+	authService := auth.NewAuthService(userRepo, refreshTokenRepo, tokenManager)
+	authHandler := auth.NewHandler(authService)
+
+	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
+		auth.RegisterRoutes(api, authHandler)
+	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
