@@ -9,13 +9,26 @@ import (
 )
 
 type Config struct {
-	App      AppConfig      `mapstructure:"app"`
-	Server   ServerConfig   `mapstructure:"server"`
-	Log      LogConfig      `mapstructure:"log"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Kafka    KafkaConfig    `mapstructure:"kafka"`
-	Auth     AuthConfig     `mapstructure:"auth"`
+	App       AppConfig       `mapstructure:"app"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Log       LogConfig       `mapstructure:"log"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Redis     RedisConfig     `mapstructure:"redis"`
+	Kafka     KafkaConfig     `mapstructure:"kafka"`
+	Auth      AuthConfig      `mapstructure:"auth"`
+	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
+	Cache     CacheConfig     `mapstructure:"cache"`
+}
+
+type CacheConfig struct {
+	SourceListTTL time.Duration `mapstructure:"source_list_ttl"`
+}
+
+type RateLimitConfig struct {
+	LoginLimit    int           `mapstructure:"login_limit"`
+	LoginWindow   time.Duration `mapstructure:"login_window"`
+	CollectLimit  int           `mapstructure:"collect_limit"`
+	CollectWindow time.Duration `mapstructure:"collect_window"`
 }
 
 type KafkaConfig struct {
@@ -125,6 +138,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
 	v.SetDefault("kafka.group_id", "contentflow-collection-worker")
 	v.SetDefault("kafka.max_attempts", 3)
+
+	v.SetDefault("cache.source_list_ttl", "30s")
+
+	v.SetDefault("rate_limit.login_limit", 5)
+	v.SetDefault("rate_limit.login_window", "1m")
+	v.SetDefault("rate_limit.collect_limit", 10)
+	v.SetDefault("rate_limit.collect_window", "1m")
 
 	v.SetDefault("auth.access_token_ttl", "15m")
 	v.SetDefault("auth.refresh_token_ttl", "168h")

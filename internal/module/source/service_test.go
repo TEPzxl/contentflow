@@ -356,6 +356,74 @@ func TestSourceService_ListSources(t *testing.T) {
 	}
 }
 
+func TestSourceService_ListSourcesCache(t *testing.T) {
+	model := sampleSourceDTO()
+
+	tests := []struct {
+		name      string
+		cache     *fakeListCache
+		mock      func(ctx context.Context, repo *sourcemocks.MockRepository)
+		wantSets  int
+		wantTotal int64
+	}{
+		{
+			name: "cache hit skips repository",
+			cache: &fakeListCache{
+				resp: &source.ListSourcesResponse{
+					Sources: []source.SourceDTO{model},
+					Total:   1,
+					Limit:   20,
+					Offset:  0,
+				},
+			},
+			mock: func(ctx context.Context, repo *sourcemocks.MockRepository) {
+			},
+			wantSets:  0,
+			wantTotal: 1,
+		},
+		{
+			name:  "cache miss writes cache",
+			cache: &fakeListCache{},
+			mock: func(ctx context.Context, repo *sourcemocks.MockRepository) {
+				repo.EXPECT().
+					ListByUserID(ctx, source.ListParams{
+						UserID: 100,
+						Type:   "",
+						Limit:  20,
+						Offset: 0,
+					}).
+					Return([]source.Source{*sampleSourceModel()}, int64(1), nil)
+			},
+			wantSets:  1,
+			wantTotal: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			ctx := context.Background()
+			repo := sourcemocks.NewMockRepository(ctrl)
+			tt.mock(ctx, repo)
+
+			svc := source.NewService(repo, source.WithListCache(tt.cache, time.Minute))
+
+			resp, err := svc.ListSources(ctx, source.ListSourcesRequest{UserID: 100})
+			if err != nil {
+				t.Fatalf("ListSources() error = %v", err)
+			}
+			if resp.Total != tt.wantTotal {
+				t.Fatalf("Total = %d, want %d", resp.Total, tt.wantTotal)
+			}
+			if tt.cache.sets != tt.wantSets {
+				t.Fatalf("cache sets = %d, want %d", tt.cache.sets, tt.wantSets)
+			}
+		})
+	}
+}
+
 func TestSourceService_GetSource(t *testing.T) {
 	model := sampleSourceModel()
 
@@ -563,4 +631,25 @@ func sampleSourceModel() *source.Source {
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
+}
+
+type fakeListCache struct {
+	resp *source.ListSourcesResponse
+	sets int
+}
+
+func (f *fakeListCache) GetList(ctx context.Context, req source.ListSourcesRequest) (*source.ListSourcesResponse, bool, error) {
+	if f.resp == nil {
+		return nil, false, nil
+	}
+	return f.resp, true, nil
+}
+
+func (f *fakeListCache) SetList(ctx context.Context, req source.ListSourcesRequest, resp *source.ListSourcesResponse, ttl time.Duration) error {
+	f.sets++
+	return nil
+}
+
+func (f *fakeListCache) DeleteUser(ctx context.Context, userID int64) error {
+	return nil
 }

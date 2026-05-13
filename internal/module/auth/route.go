@@ -4,11 +4,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(rg *gin.RouterGroup, h *Handler, authRequired gin.HandlerFunc) {
+func RegisterRoutes(rg *gin.RouterGroup, h *Handler, authRequired gin.HandlerFunc, loginMiddlewares ...gin.HandlerFunc) {
 	authGroup := rg.Group("/auth")
 
 	authGroup.POST("/register", h.Register)
-	authGroup.POST("/login", h.Login)
+	authGroup.POST("/login", append(loginMiddlewares, h.Login)...)
 	authGroup.POST("/refresh", h.Refresh)
 	authGroup.POST("/logout", h.Logout)
 

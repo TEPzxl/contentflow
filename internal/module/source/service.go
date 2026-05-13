@@ -30,8 +30,10 @@ type Service interface {
 }
 
 type SourceService struct {
-	repo Repository
-	now  func() time.Time
+	repo      Repository
+	now       func() time.Time
+	listCache ListCache
+	cacheTTL  time.Duration
 }
 
 type Option func(*SourceService)
@@ -39,6 +41,21 @@ type Option func(*SourceService)
 func WithNow(now func() time.Time) Option {
 	return func(s *SourceService) {
 		s.now = now
+	}
+}
+
+type ListCache interface {
+	GetList(ctx context.Context, req ListSourcesRequest) (*ListSourcesResponse, bool, error)
+	SetList(ctx context.Context, req ListSourcesRequest, resp *ListSourcesResponse, ttl time.Duration) error
+	DeleteUser(ctx context.Context, userID int64) error
+}
+
+func WithListCache(cache ListCache, ttl time.Duration) Option {
+	return func(s *SourceService) {
+		if cache != nil && ttl > 0 {
+			s.listCache = cache
+			s.cacheTTL = ttl
+		}
 	}
 }
 
@@ -102,6 +119,7 @@ func (s *SourceService) CreateSource(ctx context.Context, req CreateSourceReques
 
 		return nil, fmt.Errorf("create source: %w", err)
 	}
+	s.deleteUserListCache(ctx, req.UserID)
 
 	return &CreateSourceResponse{
 		Source: toDTO(src),
@@ -116,9 +134,21 @@ func (s *SourceService) ListSources(ctx context.Context, req ListSourcesRequest)
 
 	limit := normalizeLimit(req.Limit)
 	offset := normalizeOffset(req.Offset)
+	normalizedReq := ListSourcesRequest{
+		UserID: req.UserID,
+		Type:   sourceType,
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	if s.listCache != nil {
+		if cached, ok, err := s.listCache.GetList(ctx, normalizedReq); err == nil && ok {
+			return cached, nil
+		}
+	}
 
 	sources, total, err := s.repo.ListByUserID(ctx, ListParams{
-		UserID: req.UserID,
+		UserID: normalizedReq.UserID,
 		Type:   sourceType,
 		Limit:  limit,
 		Offset: offset,
@@ -132,12 +162,18 @@ func (s *SourceService) ListSources(ctx context.Context, req ListSourcesRequest)
 		dtos = append(dtos, toDTO(&sources[i]))
 	}
 
-	return &ListSourcesResponse{
+	resp := &ListSourcesResponse{
 		Sources: dtos,
 		Total:   total,
 		Limit:   limit,
 		Offset:  offset,
-	}, nil
+	}
+
+	if s.listCache != nil {
+		_ = s.listCache.SetList(ctx, normalizedReq, resp, s.cacheTTL)
+	}
+
+	return resp, nil
 }
 
 func (s *SourceService) GetSource(ctx context.Context, req GetSourceRequest) (*GetSourceResponse, error) {
@@ -211,6 +247,7 @@ func (s *SourceService) UpdateSource(ctx context.Context, req UpdateSourceReques
 
 		return nil, fmt.Errorf("update source: %w", err)
 	}
+	s.deleteUserListCache(ctx, req.UserID)
 
 	return &UpdateSourceResponse{
 		Source: toDTO(src),
@@ -226,8 +263,15 @@ func (s *SourceService) DeleteSource(ctx context.Context, req DeleteSourceReques
 	if err != nil {
 		return fmt.Errorf("delete source: %w", err)
 	}
+	s.deleteUserListCache(ctx, req.UserID)
 
 	return nil
+}
+
+func (s *SourceService) deleteUserListCache(ctx context.Context, userID int64) {
+	if s.listCache != nil {
+		_ = s.listCache.DeleteUser(ctx, userID)
+	}
 }
 
 func normalizeName(name string) (string, error) {

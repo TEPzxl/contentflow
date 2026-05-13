@@ -31,6 +31,15 @@ redis:
   db: 0
   pool_size: 10
 
+cache:
+  source_list_ttl: 30s
+
+rate_limit:
+  login_limit: 5
+  login_window: 1m
+  collect_limit: 10
+  collect_window: 1m
+
 kafka:
   enabled: false
   brokers:

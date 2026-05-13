@@ -28,6 +28,7 @@ import (
 	"github.com/tepzxl/contentflow/internal/module/scheduler"
 	"github.com/tepzxl/contentflow/internal/module/source"
 	"github.com/tepzxl/contentflow/internal/module/user"
+	"github.com/tepzxl/contentflow/internal/ratelimit"
 )
 
 func Run() error {
@@ -112,8 +113,24 @@ func Run() error {
 		return claims.UserID, nil
 	})
 
+	redisLimiter := ratelimit.NewRedisLimiter(redisClient)
+	loginRateLimit := ratelimit.Middleware(redisLimiter, ratelimit.Config{
+		Limit:   cfg.RateLimit.LoginLimit,
+		Window:  cfg.RateLimit.LoginWindow,
+		KeyFunc: ratelimit.ClientIPKey("ratelimit:login"),
+	})
+	collectRateLimit := ratelimit.Middleware(redisLimiter, ratelimit.Config{
+		Limit:   cfg.RateLimit.CollectLimit,
+		Window:  cfg.RateLimit.CollectWindow,
+		KeyFunc: ratelimit.UserIDPathKey("ratelimit:collect", "id"),
+	})
+
 	sourceRepo := source.NewRepository(db)
-	sourceService := source.NewService(sourceRepo)
+	sourceListCache := source.NewRedisListCache(redisClient, "cache:sources")
+	sourceService := source.NewService(
+		sourceRepo,
+		source.WithListCache(sourceListCache, cfg.Cache.SourceListTTL),
+	)
 	sourceHandler := source.NewHandler(sourceService)
 
 	articleRepo := article.NewRepository(db)
@@ -134,7 +151,7 @@ func Run() error {
 
 	scheduledCollector := scheduler.CollectionService(collectionService)
 	registerCollectionRoutes := func(api *gin.RouterGroup) {
-		collector.RegisterRoutes(api, collectionHandler, authRequired)
+		collector.RegisterRoutes(api, collectionHandler, authRequired, collectRateLimit)
 	}
 
 	var kafkaWriter *collectionjob.KafkaWriter
@@ -149,7 +166,7 @@ func Run() error {
 		scheduledCollector = jobProducer
 		asyncCollectionHandler := collector.NewAsyncHandler(jobProducer)
 		registerCollectionRoutes = func(api *gin.RouterGroup) {
-			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired)
+			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired, collectRateLimit)
 		}
 
 		collectionWorker = collectionjob.NewWorker(
@@ -168,7 +185,7 @@ func Run() error {
 	)
 
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
-		auth.RegisterRoutes(api, authHandler, authRequired)
+		auth.RegisterRoutes(api, authHandler, authRequired, loginRateLimit)
 		source.RegisterRoutes(api, sourceHandler, authRequired)
 		registerCollectionRoutes(api)
 	})

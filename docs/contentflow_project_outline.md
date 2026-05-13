@@ -31,7 +31,7 @@
 | Stage 7 | Email Collector | 已推进 |
 | Stage 8 | Scheduler 定时采集 | 已推进 |
 | Stage 9 | Kafka 异步采集架构 | 已推进 |
-| Stage 10 | Redis 缓存与限流 | 待开始 |
+| Stage 10 | Redis 缓存与限流 | 已推进 |
 | Stage 11 | Article 查询 API | 待开始 |
 | Stage 12 | OpenAPI 文档 | 待开始 |
 | Stage 13 | Observability：Prometheus / Grafana / OpenTelemetry | 待开始 |
@@ -703,7 +703,7 @@ IMAP / shared mailbox
 
 ## 状态
 
-待开始。
+已推进。
 
 ## 目标
 
@@ -720,14 +720,14 @@ IMAP / shared mailbox
 
 ## 主要任务
 
-- 缓存最近文章列表。
 - 缓存 source 列表。
 - 登录接口限流。
 - 采集接口限流。
 - Redis key 设计。
-- 缓存失效策略。
+- Source 列表缓存失效策略。
 - Lua 实现原子限流。
 - 编写 Redis 集成测试。
+- 最近文章列表缓存留到 Stage 11 Article 查询 API 后接入。
 
 ## 产出
 
