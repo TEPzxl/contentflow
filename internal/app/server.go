@@ -21,6 +21,7 @@ import (
 	"github.com/tepzxl/contentflow/internal/module/article"
 	"github.com/tepzxl/contentflow/internal/module/auth"
 	"github.com/tepzxl/contentflow/internal/module/collector"
+	emailcollector "github.com/tepzxl/contentflow/internal/module/collector/email"
 	rsscollector "github.com/tepzxl/contentflow/internal/module/collector/rss"
 	"github.com/tepzxl/contentflow/internal/module/source"
 	"github.com/tepzxl/contentflow/internal/module/user"
@@ -119,6 +120,7 @@ func Run() error {
 
 	collectorRegistry, err := collector.NewRegistry(
 		rsscollector.NewCollector(),
+		emailcollector.NewCollector(),
 	)
 	if err != nil {
 		return fmt.Errorf("init collector registry: %w", err)

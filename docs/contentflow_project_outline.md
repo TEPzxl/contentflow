@@ -28,7 +28,7 @@
 | Stage 4 | Article 文章入库与去重 | 已推进 |
 | Stage 5 | RSS Collector | 已推进 |
 | Stage 6 | 手动采集 API 与端到端链路 | 已推进 |
-| Stage 7 | Email Collector | 待开始 |
+| Stage 7 | Email Collector | 已推进 |
 | Stage 8 | Scheduler 定时采集 | 待开始 |
 | Stage 9 | Kafka 异步采集架构 | 待开始 |
 | Stage 10 | Redis 缓存与限流 | 待开始 |
@@ -547,7 +547,7 @@ POST /api/v1/sources/:id/collect
 
 ## 状态
 
-待开始。
+已推进。
 
 ## 目标
 
@@ -574,7 +574,7 @@ IMAP / shared mailbox
 
 - 设计 Email Source config。
 - 定义 EmailCollector。
-- 读取 mailbox。
+- 定义 MailboxReader 抽象，用于后续接入 IMAP/shared mailbox adapter。
 - 根据 from_filter / recipient_alias 过滤邮件。
 - Message-ID 作为 ExternalID。
 - Subject 作为 Title。
@@ -583,6 +583,7 @@ IMAP / shared mailbox
 - Date 作为 PublishedAt。
 - 生成 ContentHash。
 - 编写 EmailCollector tests。
+- 将 EmailCollector 注册到 app.Run 的 Collector Registry。
 
 ## 产出
 
