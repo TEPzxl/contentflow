@@ -125,11 +125,12 @@ func Run() error {
 	}
 
 	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService)
-	_ = collectionService
+	collectionHandler := collector.NewHandler(collectionService)
 
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
 		auth.RegisterRoutes(api, authHandler, authRequired)
 		source.RegisterRoutes(api, sourceHandler, authRequired)
+		collector.RegisterRoutes(api, collectionHandler, authRequired)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
