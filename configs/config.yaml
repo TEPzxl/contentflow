@@ -31,6 +31,13 @@ redis:
   db: 0
   pool_size: 10
 
+kafka:
+  enabled: false
+  brokers:
+    - localhost:9092
+  group_id: contentflow-collection-worker
+  max_attempts: 3
+
 auth:
   access_token_ttl: 15m
   refresh_token_ttl: 168h

@@ -14,7 +14,15 @@ type Config struct {
 	Log      LogConfig      `mapstructure:"log"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Redis    RedisConfig    `mapstructure:"redis"`
+	Kafka    KafkaConfig    `mapstructure:"kafka"`
 	Auth     AuthConfig     `mapstructure:"auth"`
+}
+
+type KafkaConfig struct {
+	Enabled     bool     `mapstructure:"enabled"`
+	Brokers     []string `mapstructure:"brokers"`
+	GroupID     string   `mapstructure:"group_id"`
+	MaxAttempts int      `mapstructure:"max_attempts"`
 }
 
 type AuthConfig struct {
@@ -112,6 +120,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("redis.pool_size", 10)
+
+	v.SetDefault("kafka.enabled", false)
+	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
+	v.SetDefault("kafka.group_id", "contentflow-collection-worker")
+	v.SetDefault("kafka.max_attempts", 3)
 
 	v.SetDefault("auth.access_token_ttl", "15m")
 	v.SetDefault("auth.refresh_token_ttl", "168h")

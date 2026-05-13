@@ -15,6 +15,12 @@ type CollectSourceResponse struct {
 	ErrorMessage    string
 }
 
+type RequestCollectionResponse struct {
+	TaskID   string
+	SourceID int64
+	Status   string
+}
+
 type ArticleWriteResult struct {
 	InsertedCount   int
 	DuplicatedCount int

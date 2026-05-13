@@ -30,7 +30,7 @@
 | Stage 6 | 手动采集 API 与端到端链路 | 已推进 |
 | Stage 7 | Email Collector | 已推进 |
 | Stage 8 | Scheduler 定时采集 | 已推进 |
-| Stage 9 | Kafka 异步采集架构 | 待开始 |
+| Stage 9 | Kafka 异步采集架构 | 已推进 |
 | Stage 10 | Redis 缓存与限流 | 待开始 |
 | Stage 11 | Article 查询 API | 待开始 |
 | Stage 12 | OpenAPI 文档 | 待开始 |
@@ -649,7 +649,7 @@ IMAP / shared mailbox
 
 ## 状态
 
-待开始。
+已推进。
 
 ## 目标
 
@@ -673,14 +673,14 @@ IMAP / shared mailbox
   - `collection.completed`
   - `collection.failed`
   - `collection.dlq`
-- 手动 collect API 不直接采集，而是发送采集任务。
+- 手动 collect API 在启用 Kafka 后不直接采集，而是发送采集任务。
 - Worker 消费采集任务。
 - Worker 调用 CollectionService。
 - 设计任务 idempotency key。
-- 处理重复消费。
+- 明确 Kafka 可能重复消费，下游仍依赖文章去重约束保证幂等。
 - 失败重试。
 - DLQ。
-- 编写 Kafka 集成测试或本地验证脚本。
+- 编写 Kafka 本地验证脚本。
 
 ## 产出
 

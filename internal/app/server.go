@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/tepzxl/contentflow/internal/logger"
 	"github.com/tepzxl/contentflow/internal/module/article"
 	"github.com/tepzxl/contentflow/internal/module/auth"
+	"github.com/tepzxl/contentflow/internal/module/collectionjob"
 	"github.com/tepzxl/contentflow/internal/module/collector"
 	emailcollector "github.com/tepzxl/contentflow/internal/module/collector/email"
 	rsscollector "github.com/tepzxl/contentflow/internal/module/collector/rss"
@@ -129,16 +131,46 @@ func Run() error {
 
 	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService)
 	collectionHandler := collector.NewHandler(collectionService)
+
+	scheduledCollector := scheduler.CollectionService(collectionService)
+	registerCollectionRoutes := func(api *gin.RouterGroup) {
+		collector.RegisterRoutes(api, collectionHandler, authRequired)
+	}
+
+	var kafkaWriter *collectionjob.KafkaWriter
+	var kafkaReader *collectionjob.KafkaReader
+	var collectionWorker *collectionjob.Worker
+
+	if cfg.Kafka.Enabled {
+		kafkaWriter = collectionjob.NewKafkaWriter(cfg.Kafka.Brokers)
+		kafkaReader = collectionjob.NewKafkaReader(cfg.Kafka.Brokers, cfg.Kafka.GroupID, collectionjob.TopicCollectionRequested)
+
+		jobProducer := collectionjob.NewProducer(kafkaWriter)
+		scheduledCollector = jobProducer
+		asyncCollectionHandler := collector.NewAsyncHandler(jobProducer)
+		registerCollectionRoutes = func(api *gin.RouterGroup) {
+			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired)
+		}
+
+		collectionWorker = collectionjob.NewWorker(
+			kafkaReader,
+			kafkaWriter,
+			collectionService,
+			collectionjob.WithMaxAttempts(cfg.Kafka.MaxAttempts),
+			collectionjob.WithWorkerLogger(log),
+		)
+	}
+
 	collectionScheduler := scheduler.New(
 		sourceRepo,
-		collectionService,
+		scheduledCollector,
 		scheduler.WithLogger(log),
 	)
 
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
 		auth.RegisterRoutes(api, authHandler, authRequired)
 		source.RegisterRoutes(api, sourceHandler, authRequired)
-		collector.RegisterRoutes(api, collectionHandler, authRequired)
+		registerCollectionRoutes(api)
 	})
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -151,14 +183,26 @@ func Run() error {
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
-	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
-	schedulerDone := make(chan struct{})
+	backgroundCtx, stopBackground := context.WithCancel(context.Background())
+	var backgroundWG sync.WaitGroup
+
+	backgroundWG.Add(1)
 	go func() {
-		defer close(schedulerDone)
-		if err := collectionScheduler.Run(schedulerCtx); err != nil {
+		defer backgroundWG.Done()
+		if err := collectionScheduler.Run(backgroundCtx); err != nil {
 			log.Error("collection scheduler stopped with error", slog.String("error", err.Error()))
 		}
 	}()
+
+	if collectionWorker != nil {
+		backgroundWG.Add(1)
+		go func() {
+			defer backgroundWG.Done()
+			if err := collectionWorker.Run(backgroundCtx); err != nil {
+				log.Error("collection worker stopped with error", slog.String("error", err.Error()))
+			}
+		}()
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -173,15 +217,27 @@ func Run() error {
 
 	select {
 	case err := <-errCh:
-		stopScheduler()
-		<-schedulerDone
+		stopBackground()
+		if kafkaReader != nil {
+			_ = kafkaReader.Close()
+		}
+		backgroundWG.Wait()
+		if kafkaWriter != nil {
+			_ = kafkaWriter.Close()
+		}
 		return err
 	case <-quit:
 		fmt.Println("contentflow server stopped")
 	}
 
-	stopScheduler()
-	<-schedulerDone
+	stopBackground()
+	if kafkaReader != nil {
+		_ = kafkaReader.Close()
+	}
+	backgroundWG.Wait()
+	if kafkaWriter != nil {
+		_ = kafkaWriter.Close()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
