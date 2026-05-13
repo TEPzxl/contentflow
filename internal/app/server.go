@@ -18,7 +18,10 @@ import (
 	contenthttp "github.com/tepzxl/contentflow/internal/http"
 	"github.com/tepzxl/contentflow/internal/http/middleware"
 	"github.com/tepzxl/contentflow/internal/logger"
+	"github.com/tepzxl/contentflow/internal/module/article"
 	"github.com/tepzxl/contentflow/internal/module/auth"
+	"github.com/tepzxl/contentflow/internal/module/collector"
+	rsscollector "github.com/tepzxl/contentflow/internal/module/collector/rss"
 	"github.com/tepzxl/contentflow/internal/module/source"
 	"github.com/tepzxl/contentflow/internal/module/user"
 )
@@ -108,6 +111,21 @@ func Run() error {
 	sourceRepo := source.NewRepository(db)
 	sourceService := source.NewService(sourceRepo)
 	sourceHandler := source.NewHandler(sourceService)
+
+	articleRepo := article.NewRepository(db)
+	articleService := article.NewService(articleRepo)
+
+	runRepo := collector.NewRunRepository(db)
+
+	collectorRegistry, err := collector.NewRegistry(
+		rsscollector.NewCollector(),
+	)
+	if err != nil {
+		return fmt.Errorf("init collector registry: %w", err)
+	}
+
+	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService)
+	_ = collectionService
 
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
 		auth.RegisterRoutes(api, authHandler, authRequired)
