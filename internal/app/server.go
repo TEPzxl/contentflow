@@ -23,6 +23,7 @@ import (
 	"github.com/tepzxl/contentflow/internal/module/collector"
 	emailcollector "github.com/tepzxl/contentflow/internal/module/collector/email"
 	rsscollector "github.com/tepzxl/contentflow/internal/module/collector/rss"
+	"github.com/tepzxl/contentflow/internal/module/scheduler"
 	"github.com/tepzxl/contentflow/internal/module/source"
 	"github.com/tepzxl/contentflow/internal/module/user"
 )
@@ -128,6 +129,11 @@ func Run() error {
 
 	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService)
 	collectionHandler := collector.NewHandler(collectionService)
+	collectionScheduler := scheduler.New(
+		sourceRepo,
+		collectionService,
+		scheduler.WithLogger(log),
+	)
 
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
 		auth.RegisterRoutes(api, authHandler, authRequired)
@@ -145,6 +151,15 @@ func Run() error {
 		IdleTimeout:  cfg.Server.IdleTimeout,
 	}
 
+	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
+	schedulerDone := make(chan struct{})
+	go func() {
+		defer close(schedulerDone)
+		if err := collectionScheduler.Run(schedulerCtx); err != nil {
+			log.Error("collection scheduler stopped with error", slog.String("error", err.Error()))
+		}
+	}()
+
 	errCh := make(chan error, 1)
 	go func() {
 		fmt.Println("contentflow server started on :8080")
@@ -158,10 +173,15 @@ func Run() error {
 
 	select {
 	case err := <-errCh:
+		stopScheduler()
+		<-schedulerDone
 		return err
 	case <-quit:
 		fmt.Println("contentflow server stopped")
 	}
+
+	stopScheduler()
+	<-schedulerDone
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

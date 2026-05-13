@@ -275,6 +275,59 @@ func TestSourceRepository_Create_SameURLDifferentUsers(t *testing.T) {
 	createTestSource(t, repo, 200, "User 200 Source", source.TypeRSS, &rawURL)
 }
 
+func TestSourceRepository_ListActiveForCollection(t *testing.T) {
+	db, cleanup := setupSourceRepositoryTestDB(t)
+	defer cleanup()
+
+	repo := source.NewRepository(db)
+	ctx := context.Background()
+
+	activeRSS := createTestSource(t, repo, 100, "Active RSS", source.TypeRSS, stringPtr("https://example.com/active.xml"))
+	activeEmail := createTestSource(t, repo, 200, "Active Email", source.TypeEmail, nil)
+	inactive := createTestSource(t, repo, 100, "Inactive RSS", source.TypeRSS, stringPtr("https://example.com/inactive.xml"))
+	deleted := createTestSource(t, repo, 100, "Deleted RSS", source.TypeRSS, stringPtr("https://example.com/deleted.xml"))
+
+	inactive.IsActive = false
+	inactive.UpdatedAt = time.Now().UTC()
+	if err := repo.Update(ctx, inactive); err != nil {
+		t.Fatalf("mark inactive source: %v", err)
+	}
+
+	if err := repo.SoftDelete(ctx, deleted.UserID, deleted.ID, time.Now().UTC()); err != nil {
+		t.Fatalf("soft delete source: %v", err)
+	}
+
+	got, err := repo.ListActiveForCollection(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListActiveForCollection() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %#v", len(got), got)
+	}
+
+	gotByID := map[int64]source.ActiveSourceForCollection{}
+	for _, src := range got {
+		gotByID[src.ID] = src
+	}
+
+	if gotByID[activeRSS.ID].UserID != activeRSS.UserID {
+		t.Fatalf("active rss user id = %d, want %d", gotByID[activeRSS.ID].UserID, activeRSS.UserID)
+	}
+
+	if gotByID[activeEmail.ID].UserID != activeEmail.UserID {
+		t.Fatalf("active email user id = %d, want %d", gotByID[activeEmail.ID].UserID, activeEmail.UserID)
+	}
+
+	if _, ok := gotByID[inactive.ID]; ok {
+		t.Fatalf("inactive source id %d returned", inactive.ID)
+	}
+
+	if _, ok := gotByID[deleted.ID]; ok {
+		t.Fatalf("deleted source id %d returned", deleted.ID)
+	}
+}
+
 func createTestSource(t *testing.T, repo source.Repository, userID int64, name string, sourceType string, rawURL *string) *source.Source {
 	t.Helper()
 

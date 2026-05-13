@@ -71,6 +71,21 @@ func (mr *MockRepositoryMockRecorder) FindByUserIDAndID(ctx, userID, id any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByUserIDAndID", reflect.TypeOf((*MockRepository)(nil).FindByUserIDAndID), ctx, userID, id)
 }
 
+// ListActiveForCollection mocks base method.
+func (m *MockRepository) ListActiveForCollection(ctx context.Context, limit int) ([]source.ActiveSourceForCollection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveForCollection", ctx, limit)
+	ret0, _ := ret[0].([]source.ActiveSourceForCollection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveForCollection indicates an expected call of ListActiveForCollection.
+func (mr *MockRepositoryMockRecorder) ListActiveForCollection(ctx, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveForCollection", reflect.TypeOf((*MockRepository)(nil).ListActiveForCollection), ctx, limit)
+}
+
 // ListByUserID mocks base method.
 func (m *MockRepository) ListByUserID(ctx context.Context, params source.ListParams) ([]source.Source, int64, error) {
 	m.ctrl.T.Helper()

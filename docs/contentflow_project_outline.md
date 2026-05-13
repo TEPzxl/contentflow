@@ -29,7 +29,7 @@
 | Stage 5 | RSS Collector | 已推进 |
 | Stage 6 | 手动采集 API 与端到端链路 | 已推进 |
 | Stage 7 | Email Collector | 已推进 |
-| Stage 8 | Scheduler 定时采集 | 待开始 |
+| Stage 8 | Scheduler 定时采集 | 已推进 |
 | Stage 9 | Kafka 异步采集架构 | 待开始 |
 | Stage 10 | Redis 缓存与限流 | 待开始 |
 | Stage 11 | Article 查询 API | 待开始 |
@@ -604,7 +604,7 @@ IMAP / shared mailbox
 
 ## 状态
 
-待开始。
+已推进。
 
 ## 目标
 

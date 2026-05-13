@@ -21,10 +21,18 @@ type ListParams struct {
 	Offset int
 }
 
+type ActiveSourceForCollection struct {
+	ID            int64      `gorm:"column:id"`
+	UserID        int64      `gorm:"column:user_id"`
+	Type          string     `gorm:"column:type"`
+	LastFetchedAt *time.Time `gorm:"column:last_fetched_at"`
+}
+
 type Repository interface {
 	Create(ctx context.Context, s *Source) error
 	FindByUserIDAndID(ctx context.Context, userID, id int64) (*Source, error)
 	ListByUserID(ctx context.Context, params ListParams) ([]Source, int64, error)
+	ListActiveForCollection(ctx context.Context, limit int) ([]ActiveSourceForCollection, error)
 	Update(ctx context.Context, s *Source) error
 	SoftDelete(ctx context.Context, userID, id int64, deletedAt time.Time) error
 }
@@ -107,6 +115,28 @@ func (r *GormRepository) ListByUserID(ctx context.Context, params ListParams) ([
 	}
 
 	return sources, total, nil
+}
+
+func (r *GormRepository) ListActiveForCollection(ctx context.Context, limit int) ([]ActiveSourceForCollection, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	var sources []ActiveSourceForCollection
+	if err := r.db.WithContext(ctx).
+		Model(&Source{}).
+		Select("id", "user_id", "type", "last_fetched_at").
+		Where("is_active = ?", true).
+		Where("deleted_at IS NULL").
+		Order("last_fetched_at ASC NULLS FIRST").
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&sources).
+		Error; err != nil {
+		return nil, fmt.Errorf("list active sources for collection: %w", err)
+	}
+
+	return sources, nil
 }
 
 func (r *GormRepository) Update(ctx context.Context, s *Source) error {
