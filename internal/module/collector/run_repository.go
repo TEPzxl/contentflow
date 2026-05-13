@@ -29,7 +29,7 @@ type GormRunRepository struct {
 	db *gorm.DB
 }
 
-func NewGormRunRepository(db *gorm.DB) RunRepository {
+func NewRunRepository(db *gorm.DB) RunRepository {
 	return &GormRunRepository{db: db}
 }
 
