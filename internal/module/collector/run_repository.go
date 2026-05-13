@@ -8,6 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
+var ErrCollectionRunNotFound = fmt.Errorf("collection run not found")
+
 type RunRepository interface {
 	Create(ctx context.Context, run *CollectionRun) error
 	Finish(ctx context.Context, params FinishRunParams) error
@@ -39,7 +41,7 @@ func (r *GormRunRepository) Create(ctx context.Context, run *CollectionRun) erro
 }
 
 func (r *GormRunRepository) Finish(ctx context.Context, params FinishRunParams) error {
-	_, err := gorm.G[CollectionRun](r.db).
+	rowAffected, err := gorm.G[CollectionRun](r.db).
 		Where("id = ?", params.RunID).
 		Select("status", "finished_at", "fetched_count", "inserted_count", "duplicated_count", "error_message").
 		Updates(ctx, CollectionRun{
@@ -52,6 +54,10 @@ func (r *GormRunRepository) Finish(ctx context.Context, params FinishRunParams) 
 		})
 	if err != nil {
 		return fmt.Errorf("finish collection run: %w", err)
+	}
+
+	if rowAffected == 0 {
+		return ErrCollectionRunNotFound
 	}
 	return nil
 }

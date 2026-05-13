@@ -1,25 +1,12 @@
 package collector_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/tepzxl/contentflow/internal/module/collector"
 	"github.com/tepzxl/contentflow/internal/module/source"
 )
-
-type fakeCollector struct {
-	sourceType string
-}
-
-func (f fakeCollector) Type() string {
-	return f.sourceType
-}
-
-func (f fakeCollector) Collect(ctx context.Context, src *source.Source) ([]collector.CollectedItem, error) {
-	return []collector.CollectedItem{}, nil
-}
 
 func TestNewRegistry(t *testing.T) {
 	tests := []struct {

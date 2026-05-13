@@ -33,6 +33,8 @@ mock:
 	@mockgen -source=internal/module/auth/service.go -destination=internal/module/auth/mocks/service_mock.go -package=authmocks
 	@mockgen -source=internal/module/source/service.go -destination=internal/module/source/mocks/service_mock.go -package=sourcemocks
 	@mockgen -source=internal/module/source/repository.go -destination=internal/module/source/mocks/repository_mock.go -package=sourcemocks
+	@mockgen -source=internal/module/collector/run_repository.go -destination=internal/module/collector/mocks/run_repository_mock.go -package=collectormocks
+	@mockgen -source=internal/module/collector/service.go -destination=internal/module/collector/mocks/service_mock.go -package=collectormocks
 
 
 run:
