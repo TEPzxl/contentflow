@@ -2,7 +2,7 @@ APP_NAME := contentflow
 DATABASE_URL ?= postgres://contentflow:contentflow@localhost:5432/contentflow?sslmode=disable
 
 .PHONY: run dev tidy fmt test build compose-up compose-down compose-logs migrate-up migrate-down migrate-version migrate-force \
-	mock
+	mock test-integration
 
 compose-up:
 	@docker compose -f deployments/docker-compose.yaml up -d
@@ -31,6 +31,8 @@ mock:
 	@mockgen -source=internal/module/auth/refresh_token_repository.go -destination=internal/module/auth/mocks/refresh_token_repository_mock.go -package=authmocks
 	@mockgen -source=internal/module/auth/token.go -destination=internal/module/auth/mocks/token_mock.go -package=authmocks
 	@mockgen -source=internal/module/auth/service.go -destination=internal/module/auth/mocks/service_mock.go -package=authmocks
+	@mockgen -source=internal/module/source/service.go -destination=internal/module/source/mocks/service_mock.go -package=sourcemocks
+	@mockgen -source=internal/module/source/repository.go -destination=internal/module/source/mocks/repository_mock.go -package=sourcemocks
 
 
 run:
@@ -47,6 +49,9 @@ fmt:
 
 test:
 	@go test ./...
+
+test-integration:
+	@go test ./... -tags=integration -v
 
 build:
 	@go build -o $(APP_NAME) ./cmd/server

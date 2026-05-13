@@ -9,6 +9,6 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, authRequired gin.HandlerFun
 	sources.POST("", h.Create)
 	sources.GET("", h.List)
 	sources.GET("/:id", h.Get)
-	sources.PUT("/:id", h.Update)
+	sources.PATCH("/:id", h.Update)
 	sources.DELETE("/:id", h.Delete)
 }
