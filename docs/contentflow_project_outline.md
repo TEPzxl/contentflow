@@ -966,7 +966,28 @@ PATCH  /api/v1/articles/:id/save
 
 ## 状态
 
-待开始。
+已完成基础版本。
+
+本阶段已完成：
+
+- 配置 GitHub Actions `CI` workflow。
+- 配置 Go module tidy check。
+- 配置 Go unit tests。
+- 配置 `go vet`。
+- 配置 `golangci-lint`。
+- 配置 OpenAPI 校验。
+- 配置 migration up/down 文件配对检查。
+- 配置 testcontainers integration tests。
+- 配置 backend Docker image build。
+- 增加本地可复用 CI 脚本 `scripts/ci.sh`。
+- 增加 workflow 结构校验脚本 `scripts/validate_ci.sh`。
+
+待后续增强：
+
+- 增加 coverage 上报。
+- 增加 Docker image push。
+- 增加 release workflow。
+- 增加 branch protection 必选检查。
 
 ## 目标
 
