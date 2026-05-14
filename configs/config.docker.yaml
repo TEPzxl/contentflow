@@ -1,6 +1,7 @@
 app:
   name: contentflow
   env: docker
+  mode: all
 
 server:
   host: 0.0.0.0

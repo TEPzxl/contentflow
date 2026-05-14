@@ -1,0 +1,10 @@
+BEGIN;
+
+DROP TABLE IF EXISTS collection_runs;
+DROP TABLE IF EXISTS article_states;
+DROP TABLE IF EXISTS articles;
+DROP TABLE IF EXISTS sources;
+DROP TABLE IF EXISTS refresh_tokens;
+DROP TABLE IF EXISTS users;
+
+COMMIT;

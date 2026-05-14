@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contentflow-backend
+  labels:
+    app.kubernetes.io/name: contentflow
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: contentflow
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: contentflow
+        app.kubernetes.io/component: backend
+    spec:
+      serviceAccountName: contentflow
+      containers:
+        - name: backend
+          image: contentflow:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CONTENTFLOW_CONFIG
+              value: /etc/contentflow/config.yaml
+            - name: CONTENTFLOW_APP_MODE
+              value: api
+            - name: CONTENTFLOW_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: contentflow-secret
+                  key: database-password
+            - name: CONTENTFLOW_AUTH_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: contentflow-secret
+                  key: jwt-secret
+          volumeMounts:
+            - name: config
+              mountPath: /etc/contentflow
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: contentflow-config

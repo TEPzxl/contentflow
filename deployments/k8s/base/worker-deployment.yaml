@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contentflow-worker
+  labels:
+    app.kubernetes.io/name: contentflow
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: contentflow
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: contentflow
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: contentflow
+      containers:
+        - name: worker
+          image: contentflow:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONTENTFLOW_CONFIG
+              value: /etc/contentflow/config.yaml
+            - name: CONTENTFLOW_APP_MODE
+              value: worker
+            - name: CONTENTFLOW_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: contentflow-secret
+                  key: database-password
+            - name: CONTENTFLOW_AUTH_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: contentflow-secret
+                  key: jwt-secret
+          volumeMounts:
+            - name: config
+              mountPath: /etc/contentflow
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: contentflow-config

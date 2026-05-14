@@ -47,6 +47,9 @@ jobs:
       - name: Check migrations
         run: scripts/ci.sh migrations
 
+      - name: Validate Kubernetes manifests
+        run: scripts/ci.sh k8s
+
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest

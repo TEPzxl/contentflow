@@ -37,7 +37,7 @@
 | Stage 13 | Observability：Prometheus / Grafana / OpenTelemetry | 已推进 |
 | Stage 14 | Docker Compose 完整本地环境 | 已推进 |
 | Stage 15 | GitHub Actions CI | 已推进 |
-| Stage 16 | Kubernetes 部署 | 待开始 |
+| Stage 16 | Kubernetes 部署 | 已推进 |
 | Stage 17 | AI 功能扩展 | 待开始 |
 | Stage 18 | 项目收尾、压测、简历化总结 | 待开始 |
 
@@ -1024,7 +1024,32 @@ PATCH  /api/v1/articles/:id/save
 
 ## 状态
 
-待开始。
+已完成基础版本。
+
+本阶段已完成：
+
+- 增加 app runtime mode：`all` / `api` / `worker` / `scheduler`。
+- 编写 backend Deployment。
+- 编写 backend Service。
+- 编写 Ingress。
+- 编写 ConfigMap。
+- 编写 Secret。
+- 编写 migration Job。
+- 编写 worker Deployment。
+- 编写 scheduler Deployment。
+- 配置 backend readiness / liveness probe。
+- 配置 resources request / limit。
+- 配置 backend HPA。
+- 增加 kind cluster config。
+- 增加 kind 部署脚本。
+- 增加 K8s manifest 校验脚本并接入 CI。
+
+待后续增强：
+
+- 增加 Helm Chart。
+- 增加 K8s 内 PostgreSQL / Redis / Kafka dev overlay。
+- 增加 cert-manager / TLS Ingress 配置。
+- 增加 production secret 管理方案。
 
 ## 目标
 

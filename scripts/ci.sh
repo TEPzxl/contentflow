@@ -37,6 +37,9 @@ case "${cmd}" in
       test -s "${down}"
     done
     ;;
+  k8s)
+    scripts/validate_k8s.sh
+    ;;
   integration)
     go test -count=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
     ;;
@@ -52,9 +55,10 @@ case "${cmd}" in
     "$0" vet
     "$0" openapi
     "$0" migrations
+    "$0" k8s
     ;;
   *)
-    echo "Usage: $0 [tidy-check|test|vet|lint|openapi|migrations|integration|docker-build|all]" >&2
+    echo "Usage: $0 [tidy-check|test|vet|lint|openapi|migrations|k8s|integration|docker-build|all]" >&2
     exit 1
     ;;
 esac

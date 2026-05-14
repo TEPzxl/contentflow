@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: contentflow
+
+resources:
+  - namespace.yaml
+  - service-account.yaml
+  - configmap.yaml
+  - secret.yaml
+  - backend-deployment.yaml
+  - backend-service.yaml
+  - backend-ingress.yaml
+  - backend-hpa.yaml
+  - worker-deployment.yaml
+  - scheduler-deployment.yaml
+  - migration-job.yaml
+
+configMapGenerator:
+  - name: contentflow-migrations
+    files:
+      - 000001_create_initial_tables.up.sql=migrations/000001_create_initial_tables.up.sql
+      - 000001_create_initial_tables.down.sql=migrations/000001_create_initial_tables.down.sql
+
+generatorOptions:
+  disableNameSuffixHash: true

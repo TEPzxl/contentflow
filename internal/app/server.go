@@ -37,6 +37,10 @@ func Run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	plan, err := runtimePlanForMode(cfg.App.Mode)
+	if err != nil {
+		return err
+	}
 
 	log, err := logger.New(logger.Config{
 		Level:     cfg.Log.Level,
@@ -216,6 +220,9 @@ func Run() error {
 		}
 		collectionWorker = collectionjob.NewWorker(kafkaReader, kafkaWriter, collectionService, workerOptions...)
 	}
+	if plan.Worker && collectionWorker == nil {
+		return fmt.Errorf("app mode worker requires kafka.enabled=true")
+	}
 
 	collectionScheduler := scheduler.New(
 		sourceRepo,
@@ -223,43 +230,47 @@ func Run() error {
 		scheduler.WithLogger(log),
 	)
 
-	routerOptions := []contenthttp.RouterOption{}
-	if metrics != nil {
-		routerOptions = append(routerOptions, contenthttp.WithMetrics(metrics))
-	}
-	if cfg.Observability.TracingEnabled {
-		routerOptions = append(routerOptions, contenthttp.WithTracing(cfg.Observability.ServiceName))
-	}
+	var server *http.Server
+	if plan.HTTP {
+		routerOptions := []contenthttp.RouterOption{}
+		if metrics != nil {
+			routerOptions = append(routerOptions, contenthttp.WithMetrics(metrics))
+		}
+		if cfg.Observability.TracingEnabled {
+			routerOptions = append(routerOptions, contenthttp.WithTracing(cfg.Observability.ServiceName))
+		}
 
-	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
-		auth.RegisterRoutes(api, authHandler, authRequired, loginRateLimit)
-		source.RegisterRoutes(api, sourceHandler, authRequired)
-		article.RegisterRoutes(api, articleHandler, authRequired)
-		registerCollectionRoutes(api)
-	}, routerOptions...)
+		router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
+			auth.RegisterRoutes(api, authHandler, authRequired, loginRateLimit)
+			source.RegisterRoutes(api, sourceHandler, authRequired)
+			article.RegisterRoutes(api, articleHandler, authRequired)
+			registerCollectionRoutes(api)
+		}, routerOptions...)
 
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-
-	server := &http.Server{
-		Addr:         addr,
-		Handler:      router,
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
-		IdleTimeout:  cfg.Server.IdleTimeout,
+		addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+		server = &http.Server{
+			Addr:         addr,
+			Handler:      router,
+			ReadTimeout:  cfg.Server.ReadTimeout,
+			WriteTimeout: cfg.Server.WriteTimeout,
+			IdleTimeout:  cfg.Server.IdleTimeout,
+		}
 	}
 
 	backgroundCtx, stopBackground := context.WithCancel(context.Background())
 	var backgroundWG sync.WaitGroup
 
-	backgroundWG.Add(1)
-	go func() {
-		defer backgroundWG.Done()
-		if err := collectionScheduler.Run(backgroundCtx); err != nil {
-			log.Error("collection scheduler stopped with error", slog.String("error", err.Error()))
-		}
-	}()
+	if plan.Scheduler {
+		backgroundWG.Add(1)
+		go func() {
+			defer backgroundWG.Done()
+			if err := collectionScheduler.Run(backgroundCtx); err != nil {
+				log.Error("collection scheduler stopped with error", slog.String("error", err.Error()))
+			}
+		}()
+	}
 
-	if collectionWorker != nil {
+	if plan.Worker && collectionWorker != nil {
 		backgroundWG.Add(1)
 		go func() {
 			defer backgroundWG.Done()
@@ -270,12 +281,16 @@ func Run() error {
 	}
 
 	errCh := make(chan error, 1)
-	go func() {
-		fmt.Println("contentflow server started on :8080")
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
+	if server != nil {
+		go func() {
+			fmt.Println("contentflow server started on :8080")
+			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	} else {
+		log.Info("contentflow runtime started", slog.String("mode", cfg.App.Mode))
+	}
 
 	quit := make(chan os.Signal, 1) // 接受退出信号, 容量为1避免阻塞
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -304,11 +319,13 @@ func Run() error {
 		_ = kafkaWriter.Close()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	if server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil { // 优雅退出
-		return fmt.Errorf("shutdown server: %w", err)
+		if err := server.Shutdown(ctx); err != nil { // 优雅退出
+			return fmt.Errorf("shutdown server: %w", err)
+		}
 	}
 
 	return nil

@@ -60,6 +60,7 @@ type AuthConfig struct {
 type AppConfig struct {
 	Name string `mapstructure:"name"`
 	Env  string `mapstructure:"env"`
+	Mode string `mapstructure:"mode"`
 }
 
 type ServerConfig struct {
@@ -128,6 +129,7 @@ func Load(path string) (*Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.name", "contentflow")
 	v.SetDefault("app.env", "dev")
+	v.SetDefault("app.mode", "all")
 
 	v.SetDefault("server.host", "localhost")
 	v.SetDefault("server.port", 8080)
