@@ -33,7 +33,7 @@
 | Stage 9 | Kafka 异步采集架构 | 已推进 |
 | Stage 10 | Redis 缓存与限流 | 已推进 |
 | Stage 11 | Article 查询 API | 已推进 |
-| Stage 12 | OpenAPI 文档 | 待开始 |
+| Stage 12 | OpenAPI 文档 | 已推进 |
 | Stage 13 | Observability：Prometheus / Grafana / OpenTelemetry | 待开始 |
 | Stage 14 | Docker Compose 完整本地环境 | 部分完成 |
 | Stage 15 | GitHub Actions CI | 待开始 |
@@ -806,7 +806,7 @@ PATCH  /api/v1/articles/:id/save
 
 ## 状态
 
-待开始。
+已推进。
 
 ## 目标
 

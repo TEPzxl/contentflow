@@ -1,0 +1,735 @@
+openapi: 3.0.3
+info:
+  title: contentflow API
+  version: 0.12.0
+  description: Backend API for contentflow, a content aggregation service.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Health
+  - name: Auth
+  - name: Sources
+  - name: Collection
+  - name: Articles
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Dependencies are ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+        "503":
+          description: Dependency is not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "200":
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: User logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+  /api/v1/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/sources:
+    post:
+      tags: [Sources]
+      summary: Create source
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSourceRequest"
+      responses:
+        "200":
+          description: Source created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      tags: [Sources]
+      summary: List sources
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SourceType"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Source list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceListEnvelope"
+  /api/v1/sources/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Sources]
+      summary: Get source
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Source detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Sources]
+      summary: Update source
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSourceRequest"
+      responses:
+        "200":
+          description: Source updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceEnvelope"
+    delete:
+      tags: [Sources]
+      summary: Delete source
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Source deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageEnvelope"
+  /api/v1/sources/{id}/collect:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [Collection]
+      summary: Trigger source collection
+      description: Returns a collection run in sync mode, or a queued task when Kafka async mode is enabled.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Synchronous collection finished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionRunEnvelope"
+        "202":
+          description: Collection task queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionTaskEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /api/v1/articles:
+    get:
+      tags: [Articles]
+      summary: List articles
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: source_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: is_read
+          in: query
+          schema:
+            type: boolean
+        - name: is_saved
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Article list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleListEnvelope"
+  /api/v1/articles/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Articles]
+      summary: Get article
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Article detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/articles/{id}/read:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Articles]
+      summary: Update read state
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_read]
+              properties:
+                is_read:
+                  type: boolean
+      responses:
+        "200":
+          description: Article state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleEnvelope"
+  /api/v1/articles/{id}/save:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      tags: [Articles]
+      summary: Update saved state
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_saved]
+              properties:
+                is_saved:
+                  type: boolean
+      responses:
+        "200":
+          description: Article state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleEnvelope"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+    Offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+    SourceType:
+      name: type
+      in: query
+      schema:
+        type: string
+        enum: [rss, email]
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    MessageEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        dependencies:
+          type: object
+          additionalProperties:
+            type: string
+    AuthUser:
+      type: object
+      required: [id, email, display_name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        display_name:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    LogoutRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    AuthUserEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            user:
+              $ref: "#/components/schemas/AuthUser"
+    LoginEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            token_type:
+              type: string
+              example: Bearer
+            expires_in:
+              type: integer
+              format: int64
+            user:
+              $ref: "#/components/schemas/AuthUser"
+    CreateSourceRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [rss, email]
+        url:
+          type: string
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+    UpdateSourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+    Source:
+      type: object
+      required: [id, name, type, is_active, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        type:
+          type: string
+          enum: [rss, email]
+        url:
+          type: string
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+        is_active:
+          type: boolean
+        last_fetched_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_fetch_status:
+          type: string
+        last_fetch_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SourceEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            source:
+              $ref: "#/components/schemas/Source"
+    SourceListEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            sources:
+              type: array
+              items:
+                $ref: "#/components/schemas/Source"
+            total:
+              type: integer
+              format: int64
+            limit:
+              type: integer
+            offset:
+              type: integer
+    CollectionRun:
+      type: object
+      properties:
+        run_id:
+          type: integer
+          format: int64
+        source_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [running, queued, success, failed]
+        fetched_count:
+          type: integer
+        inserted_count:
+          type: integer
+        duplicated_count:
+          type: integer
+        error_message:
+          type: string
+    CollectionRunEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            collection_run:
+              $ref: "#/components/schemas/CollectionRun"
+    CollectionTask:
+      type: object
+      properties:
+        task_id:
+          type: string
+        source_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [queued]
+    CollectionTaskEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            collection_task:
+              $ref: "#/components/schemas/CollectionTask"
+    Article:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        source_id:
+          type: integer
+          format: int64
+        source_type:
+          type: string
+        external_id:
+          type: string
+          nullable: true
+        title:
+          type: string
+        url:
+          type: string
+          nullable: true
+        original_url:
+          type: string
+          nullable: true
+        author:
+          type: string
+        summary:
+          type: string
+        content:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_read:
+          type: boolean
+        is_saved:
+          type: boolean
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        saved_at:
+          type: string
+          format: date-time
+          nullable: true
+    ArticleEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            article:
+              $ref: "#/components/schemas/Article"
+    ArticleListEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            articles:
+              type: array
+              items:
+                $ref: "#/components/schemas/Article"
+            total:
+              type: integer
+              format: int64
+            limit:
+              type: integer
+            offset:
+              type: integer

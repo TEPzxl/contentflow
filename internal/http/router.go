@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	apidocs "github.com/tepzxl/contentflow/api"
 	"github.com/tepzxl/contentflow/internal/http/handler"
 	"github.com/tepzxl/contentflow/internal/http/middleware"
 	"gorm.io/gorm"
@@ -26,5 +27,6 @@ func NewRouter(log *slog.Logger, db *gorm.DB, redisClient *redis.Client, registe
 
 	r.GET("/healthz", healthHandler.Liveness)
 	r.GET("/readyz", healthHandler.Readiness)
+	apidocs.RegisterRoutes(r)
 	return r
 }
