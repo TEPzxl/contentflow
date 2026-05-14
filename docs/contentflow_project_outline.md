@@ -34,9 +34,9 @@
 | Stage 10 | Redis 缓存与限流 | 已推进 |
 | Stage 11 | Article 查询 API | 已推进 |
 | Stage 12 | OpenAPI 文档 | 已推进 |
-| Stage 13 | Observability：Prometheus / Grafana / OpenTelemetry | 待开始 |
-| Stage 14 | Docker Compose 完整本地环境 | 部分完成 |
-| Stage 15 | GitHub Actions CI | 待开始 |
+| Stage 13 | Observability：Prometheus / Grafana / OpenTelemetry | 已推进 |
+| Stage 14 | Docker Compose 完整本地环境 | 已推进 |
+| Stage 15 | GitHub Actions CI | 已推进 |
 | Stage 16 | Kubernetes 部署 | 待开始 |
 | Stage 17 | AI 功能扩展 | 待开始 |
 | Stage 18 | 项目收尾、压测、简历化总结 | 待开始 |
