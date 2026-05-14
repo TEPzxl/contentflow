@@ -134,7 +134,12 @@ func Run() error {
 	sourceHandler := source.NewHandler(sourceService)
 
 	articleRepo := article.NewRepository(db)
-	articleService := article.NewService(articleRepo)
+	articleListCache := article.NewRedisListCache(redisClient, "cache:articles")
+	articleService := article.NewService(
+		articleRepo,
+		article.WithListCache(articleListCache, cfg.Cache.ArticleListTTL),
+	)
+	articleHandler := article.NewHandler(articleService)
 
 	runRepo := collector.NewRunRepository(db)
 
@@ -187,6 +192,7 @@ func Run() error {
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
 		auth.RegisterRoutes(api, authHandler, authRequired, loginRateLimit)
 		source.RegisterRoutes(api, sourceHandler, authRequired)
+		article.RegisterRoutes(api, articleHandler, authRequired)
 		registerCollectionRoutes(api)
 	})
 

@@ -32,7 +32,7 @@
 | Stage 8 | Scheduler 定时采集 | 已推进 |
 | Stage 9 | Kafka 异步采集架构 | 已推进 |
 | Stage 10 | Redis 缓存与限流 | 已推进 |
-| Stage 11 | Article 查询 API | 待开始 |
+| Stage 11 | Article 查询 API | 已推进 |
 | Stage 12 | OpenAPI 文档 | 待开始 |
 | Stage 13 | Observability：Prometheus / Grafana / OpenTelemetry | 待开始 |
 | Stage 14 | Docker Compose 完整本地环境 | 部分完成 |
@@ -749,7 +749,7 @@ IMAP / shared mailbox
 
 ## 状态
 
-待开始。
+已推进。
 
 ## 目标
 
@@ -776,6 +776,7 @@ IMAP / shared mailbox
 - 标记已读。
 - 收藏 / 取消收藏。
 - 编写 Handler / Service / Repository 测试。
+- 接入文章列表 Redis cache-aside 缓存。
 
 ## API
 

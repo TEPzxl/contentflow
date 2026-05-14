@@ -55,3 +55,49 @@ func (mr *MockRepositoryMockRecorder) CreateIfNotExists(ctx, arg1 any) *gomock.C
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateIfNotExists", reflect.TypeOf((*MockRepository)(nil).CreateIfNotExists), ctx, arg1)
 }
+
+// FindByUserAndID mocks base method.
+func (m *MockRepository) FindByUserAndID(ctx context.Context, userID, articleID int64) (article.ArticleWithState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByUserAndID", ctx, userID, articleID)
+	ret0, _ := ret[0].(article.ArticleWithState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByUserAndID indicates an expected call of FindByUserAndID.
+func (mr *MockRepositoryMockRecorder) FindByUserAndID(ctx, userID, articleID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByUserAndID", reflect.TypeOf((*MockRepository)(nil).FindByUserAndID), ctx, userID, articleID)
+}
+
+// ListByUser mocks base method.
+func (m *MockRepository) ListByUser(ctx context.Context, params article.ListArticlesParams) ([]article.ArticleWithState, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByUser", ctx, params)
+	ret0, _ := ret[0].([]article.ArticleWithState)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListByUser indicates an expected call of ListByUser.
+func (mr *MockRepositoryMockRecorder) ListByUser(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByUser", reflect.TypeOf((*MockRepository)(nil).ListByUser), ctx, params)
+}
+
+// UpsertState mocks base method.
+func (m *MockRepository) UpsertState(ctx context.Context, params article.UpsertArticleStateParams) (article.ArticleWithState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertState", ctx, params)
+	ret0, _ := ret[0].(article.ArticleWithState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertState indicates an expected call of UpsertState.
+func (mr *MockRepositoryMockRecorder) UpsertState(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertState", reflect.TypeOf((*MockRepository)(nil).UpsertState), ctx, params)
+}

@@ -100,6 +100,109 @@ func TestArticleRepository_CreateIfNotExists_Deduplication(t *testing.T) {
 		})
 	}
 }
+
+func TestArticleRepository_ListByUserAndState(t *testing.T) {
+	db, cleanup := setupArticleRepositoryTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	repo := article.NewRepository(db)
+
+	userID := createTestUser(t, db, "articles-user@example.com")
+	otherUserID := createTestUser(t, db, "articles-other@example.com")
+	sourceID := createTestSource(t, db, userID, "https://example.com/feed.xml")
+	otherSourceID := createTestSource(t, db, otherUserID, "https://other.example.com/feed.xml")
+
+	first := sampleArticle(sourceID)
+	first.Title = "Go Article"
+	first.ContentHash = "hash-list-1"
+	first.ExternalID = stringPtr("guid-list-1")
+	second := sampleArticle(sourceID)
+	second.Title = "Database Article"
+	second.ContentHash = "hash-list-2"
+	second.ExternalID = stringPtr("guid-list-2")
+	other := sampleArticle(otherSourceID)
+	other.Title = "Other User Article"
+	other.ContentHash = "hash-list-3"
+	other.ExternalID = stringPtr("guid-list-3")
+
+	if created, err := repo.CreateIfNotExists(ctx, first); err != nil || !created {
+		t.Fatalf("create first article = %v, %v", created, err)
+	}
+	if created, err := repo.CreateIfNotExists(ctx, second); err != nil || !created {
+		t.Fatalf("create second article = %v, %v", created, err)
+	}
+	if created, err := repo.CreateIfNotExists(ctx, other); err != nil || !created {
+		t.Fatalf("create other article = %v, %v", created, err)
+	}
+
+	now := time.Now().UTC()
+	updated, err := repo.UpsertState(ctx, article.UpsertArticleStateParams{
+		UserID:    userID,
+		ArticleID: first.ID,
+		IsRead:    boolPtr(true),
+		IsSaved:   boolPtr(true),
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("UpsertState() error = %v", err)
+	}
+	if !updated.IsRead || !updated.IsSaved || updated.ReadAt == nil || updated.SavedAt == nil {
+		t.Fatalf("updated state = %#v", updated)
+	}
+
+	list, total, err := repo.ListByUser(ctx, article.ListArticlesParams{
+		UserID: userID,
+		Limit:  20,
+		Offset: 0,
+	})
+	if err != nil {
+		t.Fatalf("ListByUser() error = %v", err)
+	}
+	if total != 2 || len(list) != 2 {
+		t.Fatalf("total/len = %d/%d, want 2/2", total, len(list))
+	}
+
+	saved, total, err := repo.ListByUser(ctx, article.ListArticlesParams{
+		UserID:  userID,
+		IsSaved: boolPtr(true),
+		Limit:   20,
+		Offset:  0,
+	})
+	if err != nil {
+		t.Fatalf("ListByUser(saved) error = %v", err)
+	}
+	if total != 1 || len(saved) != 1 || saved[0].ID != first.ID {
+		t.Fatalf("saved result = total %d rows %#v", total, saved)
+	}
+
+	search, total, err := repo.ListByUser(ctx, article.ListArticlesParams{
+		UserID: userID,
+		Query:  "database",
+		Limit:  20,
+		Offset: 0,
+	})
+	if err != nil {
+		t.Fatalf("ListByUser(search) error = %v", err)
+	}
+	if total != 1 || len(search) != 1 || search[0].ID != second.ID {
+		t.Fatalf("search result = total %d rows %#v", total, search)
+	}
+
+	got, err := repo.FindByUserAndID(ctx, userID, second.ID)
+	if err != nil {
+		t.Fatalf("FindByUserAndID() error = %v", err)
+	}
+	if got.IsRead || got.IsSaved {
+		t.Fatalf("default state = read %v saved %v, want false/false", got.IsRead, got.IsSaved)
+	}
+
+	_, err = repo.FindByUserAndID(ctx, userID, other.ID)
+	if !errors.Is(err, article.ErrArticleNotFound) {
+		t.Fatalf("FindByUserAndID(other) error = %v, want ErrArticleNotFound", err)
+	}
+}
+
 func createTestUser(t *testing.T, db *gorm.DB, email string) int64 {
 	t.Helper()
 

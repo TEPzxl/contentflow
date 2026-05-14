@@ -21,7 +21,8 @@ type Config struct {
 }
 
 type CacheConfig struct {
-	SourceListTTL time.Duration `mapstructure:"source_list_ttl"`
+	SourceListTTL  time.Duration `mapstructure:"source_list_ttl"`
+	ArticleListTTL time.Duration `mapstructure:"article_list_ttl"`
 }
 
 type RateLimitConfig struct {
@@ -140,6 +141,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.max_attempts", 3)
 
 	v.SetDefault("cache.source_list_ttl", "30s")
+	v.SetDefault("cache.article_list_ttl", "30s")
 
 	v.SetDefault("rate_limit.login_limit", 5)
 	v.SetDefault("rate_limit.login_window", "1m")
