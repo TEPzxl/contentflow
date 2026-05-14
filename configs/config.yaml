@@ -41,6 +41,12 @@ rate_limit:
   collect_limit: 10
   collect_window: 1m
 
+observability:
+  metrics_enabled: true
+  tracing_enabled: false
+  service_name: contentflow
+  otlp_endpoint: localhost:4317
+
 kafka:
   enabled: false
   brokers:

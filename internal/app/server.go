@@ -28,6 +28,7 @@ import (
 	"github.com/tepzxl/contentflow/internal/module/scheduler"
 	"github.com/tepzxl/contentflow/internal/module/source"
 	"github.com/tepzxl/contentflow/internal/module/user"
+	"github.com/tepzxl/contentflow/internal/observability"
 	"github.com/tepzxl/contentflow/internal/ratelimit"
 )
 
@@ -48,6 +49,22 @@ func Run() error {
 	slog.SetDefault(log)
 
 	ctx := context.Background()
+	traceShutdown, err := observability.InitTracing(ctx, observability.TracingConfig{
+		Enabled:      cfg.Observability.TracingEnabled,
+		ServiceName:  cfg.Observability.ServiceName,
+		OTLPEndpoint: cfg.Observability.OTLPEndpoint,
+	})
+	if err != nil {
+		return fmt.Errorf("init tracing: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := traceShutdown(shutdownCtx); err != nil {
+			log.Warn("shutdown tracing failed", slog.String("error", err.Error()))
+		}
+	}()
+
 	db, err := database.NewPostgres(ctx, database.Config{
 		Host:            cfg.Database.Host,
 		Port:            cfg.Database.Port,
@@ -73,6 +90,17 @@ func Run() error {
 		slog.Int("port", cfg.Database.Port),
 		slog.String("dbname", cfg.Database.DBName),
 	)
+
+	var metrics *observability.Metrics
+	if cfg.Observability.MetricsEnabled {
+		metrics, err = observability.NewDefaultMetrics()
+		if err != nil {
+			return fmt.Errorf("init metrics: %w", err)
+		}
+		if err := metrics.RegisterGormCallbacks(db); err != nil {
+			return fmt.Errorf("register database metrics: %w", err)
+		}
+	}
 
 	redisClient, err := cache.NewRedis(ctx, cache.RedisConfig{
 		Addr:     cfg.Redis.Addr,
@@ -151,7 +179,12 @@ func Run() error {
 		return fmt.Errorf("init collector registry: %w", err)
 	}
 
-	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService)
+	collectionOptions := []collector.Option{}
+	if metrics != nil {
+		collectionOptions = append(collectionOptions, collector.WithObserver(metrics))
+	}
+	collectionOptions = append(collectionOptions, collector.WithLogger(log))
+	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService, collectionOptions...)
 	collectionHandler := collector.NewHandler(collectionService)
 
 	scheduledCollector := scheduler.CollectionService(collectionService)
@@ -174,13 +207,14 @@ func Run() error {
 			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired, collectRateLimit)
 		}
 
-		collectionWorker = collectionjob.NewWorker(
-			kafkaReader,
-			kafkaWriter,
-			collectionService,
+		workerOptions := []collectionjob.WorkerOption{
 			collectionjob.WithMaxAttempts(cfg.Kafka.MaxAttempts),
 			collectionjob.WithWorkerLogger(log),
-		)
+		}
+		if metrics != nil {
+			workerOptions = append(workerOptions, collectionjob.WithJobObserver(metrics))
+		}
+		collectionWorker = collectionjob.NewWorker(kafkaReader, kafkaWriter, collectionService, workerOptions...)
 	}
 
 	collectionScheduler := scheduler.New(
@@ -189,12 +223,20 @@ func Run() error {
 		scheduler.WithLogger(log),
 	)
 
+	routerOptions := []contenthttp.RouterOption{}
+	if metrics != nil {
+		routerOptions = append(routerOptions, contenthttp.WithMetrics(metrics))
+	}
+	if cfg.Observability.TracingEnabled {
+		routerOptions = append(routerOptions, contenthttp.WithTracing(cfg.Observability.ServiceName))
+	}
+
 	router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
 		auth.RegisterRoutes(api, authHandler, authRequired, loginRateLimit)
 		source.RegisterRoutes(api, sourceHandler, authRequired)
 		article.RegisterRoutes(api, articleHandler, authRequired)
 		registerCollectionRoutes(api)
-	})
+	}, routerOptions...)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 

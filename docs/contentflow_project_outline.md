@@ -849,7 +849,26 @@ PATCH  /api/v1/articles/:id/save
 
 ## 状态
 
-待开始。
+已完成基础版本。
+
+本阶段已完成：
+
+- 请求链路增加 `request_id`，响应头统一返回 `X-Request-ID`。
+- HTTP 请求总量与耗时 metrics。
+- Collector 采集成功 / 失败与 item 计数 metrics。
+- GORM DB 操作总量与耗时 metrics。
+- Kafka worker 写事件 metrics。
+- `/metrics` Prometheus scrape endpoint。
+- OpenTelemetry trace 初始化与 Gin middleware 接入。
+- Docker Compose 增加 Prometheus / Grafana。
+- Grafana provisioning 增加 Contentflow overview dashboard。
+- 结构化日志补充 `request_id` / `user_id` / `source_id` / `run_id`。
+
+待后续增强：
+
+- 引入 Tempo / Jaeger 作为本地 trace backend。
+- 为 collector 内部步骤增加更细粒度 span。
+- 增加告警规则与 SLO dashboard。
 
 ## 目标
 

@@ -9,15 +9,23 @@ import (
 )
 
 type Config struct {
-	App       AppConfig       `mapstructure:"app"`
-	Server    ServerConfig    `mapstructure:"server"`
-	Log       LogConfig       `mapstructure:"log"`
-	Database  DatabaseConfig  `mapstructure:"database"`
-	Redis     RedisConfig     `mapstructure:"redis"`
-	Kafka     KafkaConfig     `mapstructure:"kafka"`
-	Auth      AuthConfig      `mapstructure:"auth"`
-	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
-	Cache     CacheConfig     `mapstructure:"cache"`
+	App           AppConfig           `mapstructure:"app"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Log           LogConfig           `mapstructure:"log"`
+	Database      DatabaseConfig      `mapstructure:"database"`
+	Redis         RedisConfig         `mapstructure:"redis"`
+	Kafka         KafkaConfig         `mapstructure:"kafka"`
+	Auth          AuthConfig          `mapstructure:"auth"`
+	RateLimit     RateLimitConfig     `mapstructure:"rate_limit"`
+	Cache         CacheConfig         `mapstructure:"cache"`
+	Observability ObservabilityConfig `mapstructure:"observability"`
+}
+
+type ObservabilityConfig struct {
+	MetricsEnabled bool   `mapstructure:"metrics_enabled"`
+	TracingEnabled bool   `mapstructure:"tracing_enabled"`
+	ServiceName    string `mapstructure:"service_name"`
+	OTLPEndpoint   string `mapstructure:"otlp_endpoint"`
 }
 
 type CacheConfig struct {
@@ -147,6 +155,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("rate_limit.login_window", "1m")
 	v.SetDefault("rate_limit.collect_limit", 10)
 	v.SetDefault("rate_limit.collect_window", "1m")
+
+	v.SetDefault("observability.metrics_enabled", true)
+	v.SetDefault("observability.tracing_enabled", false)
+	v.SetDefault("observability.service_name", "contentflow")
+	v.SetDefault("observability.otlp_endpoint", "localhost:4317")
 
 	v.SetDefault("auth.access_token_ttl", "15m")
 	v.SetDefault("auth.refresh_token_ttl", "168h")

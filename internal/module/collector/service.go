@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/tepzxl/contentflow/internal/module/source"
@@ -22,11 +23,29 @@ type Service interface {
 	CollectSource(ctx context.Context, req CollectSourceRequest) (*CollectSourceResponse, error)
 }
 
+type CollectionObservation struct {
+	RunID           int64
+	SourceID        int64
+	SourceType      string
+	Status          string
+	FetchedCount    int
+	InsertedCount   int
+	DuplicatedCount int
+	Duration        time.Duration
+	ErrorMessage    string
+}
+
+type CollectionObserver interface {
+	ObserveCollection(ctx context.Context, observation CollectionObservation)
+}
+
 type CollectionService struct {
 	sourceRepo    source.Repository
 	runRepo       RunRepository
 	registry      *Registry
 	articleWriter ArticleWriter
+	observer      CollectionObserver
+	logger        *slog.Logger
 	now           func() time.Time
 }
 
@@ -37,12 +56,28 @@ func WithNow(now func() time.Time) Option {
 		cs.now = now
 	}
 }
+
+func WithObserver(observer CollectionObserver) Option {
+	return func(cs *CollectionService) {
+		cs.observer = observer
+	}
+}
+
+func WithLogger(logger *slog.Logger) Option {
+	return func(cs *CollectionService) {
+		if logger != nil {
+			cs.logger = logger
+		}
+	}
+}
+
 func NewService(sourceRepo source.Repository, runRepo RunRepository, registry *Registry, articleWriter ArticleWriter, opts ...Option) Service {
 	s := &CollectionService{
 		sourceRepo:    sourceRepo,
 		runRepo:       runRepo,
 		registry:      registry,
 		articleWriter: articleWriter,
+		logger:        slog.Default(),
 		now:           func() time.Time { return time.Now().UTC() },
 	}
 
@@ -68,6 +103,7 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 	}
 
 	now := s.now()
+	startedAt := now
 
 	run := &CollectionRun{
 		SourceID:        src.ID,
@@ -86,12 +122,12 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 
 	items, err := c.Collect(ctx, src)
 	if err != nil {
-		return s.finishFailed(ctx, run.ID, src, 0, 0, 0, err)
+		return s.finishFailed(ctx, run.ID, src, startedAt, 0, 0, 0, err)
 	}
 
 	writeResult, err := s.articleWriter.SaveCollectedItems(ctx, items)
 	if err != nil {
-		return s.finishFailed(ctx, run.ID, src, len(items), 0, 0, err)
+		return s.finishFailed(ctx, run.ID, src, startedAt, len(items), 0, 0, err)
 	}
 
 	finishedAt := s.now()
@@ -117,6 +153,17 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 		return nil, fmt.Errorf("update source fetch status: %w", err)
 	}
 
+	s.observe(ctx, CollectionObservation{
+		RunID:           run.ID,
+		SourceID:        src.ID,
+		SourceType:      src.Type,
+		Status:          RunStatusSuccess,
+		FetchedCount:    len(items),
+		InsertedCount:   writeResult.InsertedCount,
+		DuplicatedCount: writeResult.DuplicatedCount,
+		Duration:        finishedAt.Sub(startedAt),
+	})
+
 	return &CollectSourceResponse{
 		RunID:           run.ID,
 		SourceID:        src.ID,
@@ -131,6 +178,7 @@ func (s *CollectionService) finishFailed(
 	ctx context.Context,
 	runID int64,
 	src *source.Source,
+	startedAt time.Time,
 	fetchedCount int,
 	insertedCount int,
 	duplicatedCount int,
@@ -160,6 +208,18 @@ func (s *CollectionService) finishFailed(
 		return nil, fmt.Errorf("update source failed status: %w", err)
 	}
 
+	s.observe(ctx, CollectionObservation{
+		RunID:           runID,
+		SourceID:        src.ID,
+		SourceType:      src.Type,
+		Status:          RunStatusFailed,
+		FetchedCount:    fetchedCount,
+		InsertedCount:   insertedCount,
+		DuplicatedCount: duplicatedCount,
+		Duration:        finishedAt.Sub(startedAt),
+		ErrorMessage:    errorMessage,
+	})
+
 	return &CollectSourceResponse{
 		RunID:           runID,
 		SourceID:        src.ID,
@@ -169,4 +229,28 @@ func (s *CollectionService) finishFailed(
 		DuplicatedCount: duplicatedCount,
 		ErrorMessage:    errorMessage,
 	}, fmt.Errorf("%w: %v", ErrCollectionFailed, cause)
+}
+
+func (s *CollectionService) observe(ctx context.Context, observation CollectionObservation) {
+	attrs := []any{
+		slog.Int64("run_id", observation.RunID),
+		slog.Int64("source_id", observation.SourceID),
+		slog.String("source_type", observation.SourceType),
+		slog.String("status", observation.Status),
+		slog.Int("fetched_count", observation.FetchedCount),
+		slog.Int("inserted_count", observation.InsertedCount),
+		slog.Int("duplicated_count", observation.DuplicatedCount),
+		slog.Duration("duration", observation.Duration),
+	}
+	if observation.ErrorMessage != "" {
+		attrs = append(attrs, slog.String("error_message", observation.ErrorMessage))
+		s.logger.Warn("collection run completed", attrs...)
+	} else {
+		s.logger.Info("collection run completed", attrs...)
+	}
+
+	if s.observer == nil {
+		return
+	}
+	s.observer.ObserveCollection(ctx, observation)
 }

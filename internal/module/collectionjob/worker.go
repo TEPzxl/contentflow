@@ -23,11 +23,21 @@ type CollectionService interface {
 	CollectSource(ctx context.Context, req collector.CollectSourceRequest) (*collector.CollectSourceResponse, error)
 }
 
+type JobObservation struct {
+	Topic  string
+	Status string
+}
+
+type JobObserver interface {
+	ObserveJob(ctx context.Context, observation JobObservation)
+}
+
 type Worker struct {
 	reader      EventReader
 	writer      EventWriter
 	service     CollectionService
 	logger      *slog.Logger
+	observer    JobObserver
 	now         func() time.Time
 	maxAttempts int
 }
@@ -55,6 +65,12 @@ func WithWorkerLogger(logger *slog.Logger) WorkerOption {
 		if logger != nil {
 			w.logger = logger
 		}
+	}
+}
+
+func WithJobObserver(observer JobObserver) WorkerOption {
+	return func(w *Worker) {
+		w.observer = observer
 	}
 }
 
@@ -162,8 +178,20 @@ func (w *Worker) writeJSON(ctx context.Context, topic string, key string, payloa
 		Key:   []byte(key),
 		Value: data,
 	}); err != nil {
+		w.observeJob(ctx, topic, "failed")
 		return fmt.Errorf("write %s event: %w", topic, err)
 	}
 
+	w.observeJob(ctx, topic, "success")
 	return nil
+}
+
+func (w *Worker) observeJob(ctx context.Context, topic string, status string) {
+	if w.observer == nil {
+		return
+	}
+	w.observer.ObserveJob(ctx, JobObservation{
+		Topic:  topic,
+		Status: status,
+	})
 }
