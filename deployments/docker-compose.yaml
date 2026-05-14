@@ -1,4 +1,32 @@
 services:
+  backend:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    container_name: contentflow_backend
+    environment:
+      CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
   postgres:
     image: postgres:17-alpine
     container_name: contentflow_postgres
@@ -29,23 +57,52 @@ services:
       timeout: 3s
       retries: 10
 
+  migrate:
+    image: migrate/migrate:v4.18.3
+    container_name: contentflow_migrate
+    volumes:
+      - ../migrations:/migrations:ro
+    command:
+      - -path=/migrations
+      - -database=postgres://contentflow:contentflow@postgres:5432/contentflow?sslmode=disable
+      - up
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   kafka:
     image: bitnami/kafka:3.7
     container_name: contentflow_kafka
     ports:
-      - "9092:9092"
+      - "9092:9094"
     environment:
       KAFKA_CFG_NODE_ID: 1
       KAFKA_CFG_PROCESS_ROLES: broker,controller
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_LISTENERS: INTERNAL://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
       ALLOW_PLAINTEXT_LISTENER: "yes"
     volumes:
       - contentflow_kafka:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: contentflow_otel_collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
 
   prometheus:
     image: prom/prometheus:v3.0.1

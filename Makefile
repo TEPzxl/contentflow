@@ -1,17 +1,28 @@
 APP_NAME := contentflow
 DATABASE_URL ?= postgres://contentflow:contentflow@localhost:5432/contentflow?sslmode=disable
 
-.PHONY: run dev tidy fmt test build compose-up compose-down compose-logs migrate-up migrate-down migrate-version migrate-force \
+.PHONY: run dev tidy fmt test build compose-up compose-build compose-down compose-logs compose-ps logs dev-stack migrate-up migrate-down migrate-version migrate-force \
 	mock test-integration
 
 compose-up:
-	@docker compose -f deployments/docker-compose.yaml up -d
+	@docker compose -f deployments/docker-compose.yaml up -d --build
+
+compose-build:
+	@docker compose -f deployments/docker-compose.yaml build
 
 compose-down:
 	@docker compose -f deployments/docker-compose.yaml down
 
 compose-logs:
 	@docker compose -f deployments/docker-compose.yaml logs -f
+
+compose-ps:
+	@docker compose -f deployments/docker-compose.yaml ps
+
+logs: compose-logs
+
+dev-stack:
+	@scripts/dev_stack.sh up
 
 migrate-up:
 	@migrate -path migrations -database "$(DATABASE_URL)" up

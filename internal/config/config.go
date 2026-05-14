@@ -2,11 +2,14 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 )
+
+const EnvConfigPath = "CONTENTFLOW_CONFIG"
 
 type Config struct {
 	App           AppConfig           `mapstructure:"app"`
@@ -90,6 +93,14 @@ type RedisConfig struct {
 	Password string `mapstructure:"password"`
 	DB       int    `mapstructure:"db"`
 	PoolSize int    `mapstructure:"pool_size"`
+}
+
+func PathFromEnv(defaultPath string) string {
+	path := strings.TrimSpace(os.Getenv(EnvConfigPath))
+	if path == "" {
+		return defaultPath
+	}
+	return path
 }
 
 func Load(path string) (*Config, error) {

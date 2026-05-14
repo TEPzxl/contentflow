@@ -915,15 +915,12 @@ PATCH  /api/v1/articles/:id/save
 
 ## 状态
 
-部分完成。
+已完成基础版本。
 
 ## 已完成
 
 - PostgreSQL。
 - Redis。
-
-## 待完成
-
 - Kafka。
 - Prometheus。
 - Grafana。
@@ -931,6 +928,11 @@ PATCH  /api/v1/articles/:id/save
 - Backend service。
 - Migration runner。
 - 本地一键启动脚本。
+
+## 待完成
+
+- 后续可补充 Tempo / Jaeger trace UI。
+- 后续可补充生产级 secrets 管理。
 
 ## 目标
 

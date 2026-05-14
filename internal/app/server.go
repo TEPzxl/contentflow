@@ -33,7 +33,7 @@ import (
 )
 
 func Run() error {
-	cfg, err := config.Load("configs/config.yaml")
+	cfg, err := config.Load(config.PathFromEnv("configs/config.yaml"))
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
