@@ -188,6 +188,7 @@ func Run() error {
 		collectionOptions = append(collectionOptions, collector.WithObserver(metrics))
 	}
 	collectionOptions = append(collectionOptions, collector.WithLogger(log))
+	collectionOptions = append(collectionOptions, collector.WithCollectionLock(collector.NewRedisCollectionLock(redisClient)))
 	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService, collectionOptions...)
 	collectionHandler := collector.NewHandler(collectionService)
 
@@ -209,6 +210,7 @@ func Run() error {
 		asyncCollectionHandler := collector.NewAsyncHandler(jobProducer)
 		registerCollectionRoutes = func(api *gin.RouterGroup) {
 			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired, collectRateLimit)
+			collector.RegisterCollectionRunRoutes(api, collectionHandler, authRequired)
 		}
 
 		workerOptions := []collectionjob.WorkerOption{

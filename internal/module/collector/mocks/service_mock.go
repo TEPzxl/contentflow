@@ -12,6 +12,7 @@ package collectormocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	collector "github.com/tepzxl/contentflow/internal/module/collector"
 	gomock "go.uber.org/mock/gomock"
@@ -93,4 +94,110 @@ func (m *MockService) CollectSource(ctx context.Context, req collector.CollectSo
 func (mr *MockServiceMockRecorder) CollectSource(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectSource", reflect.TypeOf((*MockService)(nil).CollectSource), ctx, req)
+}
+
+// GetCollectionRun mocks base method.
+func (m *MockService) GetCollectionRun(ctx context.Context, req collector.GetCollectionRunRequest) (*collector.GetCollectionRunResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCollectionRun", ctx, req)
+	ret0, _ := ret[0].(*collector.GetCollectionRunResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCollectionRun indicates an expected call of GetCollectionRun.
+func (mr *MockServiceMockRecorder) GetCollectionRun(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCollectionRun", reflect.TypeOf((*MockService)(nil).GetCollectionRun), ctx, req)
+}
+
+// ListCollectionRuns mocks base method.
+func (m *MockService) ListCollectionRuns(ctx context.Context, req collector.ListCollectionRunsRequest) (*collector.ListCollectionRunsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCollectionRuns", ctx, req)
+	ret0, _ := ret[0].(*collector.ListCollectionRunsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCollectionRuns indicates an expected call of ListCollectionRuns.
+func (mr *MockServiceMockRecorder) ListCollectionRuns(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollectionRuns", reflect.TypeOf((*MockService)(nil).ListCollectionRuns), ctx, req)
+}
+
+// MockCollectionObserver is a mock of CollectionObserver interface.
+type MockCollectionObserver struct {
+	ctrl     *gomock.Controller
+	recorder *MockCollectionObserverMockRecorder
+	isgomock struct{}
+}
+
+// MockCollectionObserverMockRecorder is the mock recorder for MockCollectionObserver.
+type MockCollectionObserverMockRecorder struct {
+	mock *MockCollectionObserver
+}
+
+// NewMockCollectionObserver creates a new mock instance.
+func NewMockCollectionObserver(ctrl *gomock.Controller) *MockCollectionObserver {
+	mock := &MockCollectionObserver{ctrl: ctrl}
+	mock.recorder = &MockCollectionObserverMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCollectionObserver) EXPECT() *MockCollectionObserverMockRecorder {
+	return m.recorder
+}
+
+// ObserveCollection mocks base method.
+func (m *MockCollectionObserver) ObserveCollection(ctx context.Context, observation collector.CollectionObservation) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ObserveCollection", ctx, observation)
+}
+
+// ObserveCollection indicates an expected call of ObserveCollection.
+func (mr *MockCollectionObserverMockRecorder) ObserveCollection(ctx, observation any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ObserveCollection", reflect.TypeOf((*MockCollectionObserver)(nil).ObserveCollection), ctx, observation)
+}
+
+// MockCollectionLock is a mock of CollectionLock interface.
+type MockCollectionLock struct {
+	ctrl     *gomock.Controller
+	recorder *MockCollectionLockMockRecorder
+	isgomock struct{}
+}
+
+// MockCollectionLockMockRecorder is the mock recorder for MockCollectionLock.
+type MockCollectionLockMockRecorder struct {
+	mock *MockCollectionLock
+}
+
+// NewMockCollectionLock creates a new mock instance.
+func NewMockCollectionLock(ctrl *gomock.Controller) *MockCollectionLock {
+	mock := &MockCollectionLock{ctrl: ctrl}
+	mock.recorder = &MockCollectionLockMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCollectionLock) EXPECT() *MockCollectionLockMockRecorder {
+	return m.recorder
+}
+
+// Acquire mocks base method.
+func (m *MockCollectionLock) Acquire(ctx context.Context, sourceID int64, ttl time.Duration) (collector.CollectionLockReleaseFunc, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Acquire", ctx, sourceID, ttl)
+	ret0, _ := ret[0].(collector.CollectionLockReleaseFunc)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Acquire indicates an expected call of Acquire.
+func (mr *MockCollectionLockMockRecorder) Acquire(ctx, sourceID, ttl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Acquire", reflect.TypeOf((*MockCollectionLock)(nil).Acquire), ctx, sourceID, ttl)
 }

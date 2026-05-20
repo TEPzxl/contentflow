@@ -55,6 +55,21 @@ func (mr *MockRunRepositoryMockRecorder) Create(ctx, run any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockRunRepository)(nil).Create), ctx, run)
 }
 
+// FindByUserIDAndID mocks base method.
+func (m *MockRunRepository) FindByUserIDAndID(ctx context.Context, userID, runID int64) (*collector.CollectionRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByUserIDAndID", ctx, userID, runID)
+	ret0, _ := ret[0].(*collector.CollectionRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByUserIDAndID indicates an expected call of FindByUserIDAndID.
+func (mr *MockRunRepositoryMockRecorder) FindByUserIDAndID(ctx, userID, runID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByUserIDAndID", reflect.TypeOf((*MockRunRepository)(nil).FindByUserIDAndID), ctx, userID, runID)
+}
+
 // Finish mocks base method.
 func (m *MockRunRepository) Finish(ctx context.Context, params collector.FinishRunParams) error {
 	m.ctrl.T.Helper()
@@ -67,4 +82,20 @@ func (m *MockRunRepository) Finish(ctx context.Context, params collector.FinishR
 func (mr *MockRunRepositoryMockRecorder) Finish(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Finish", reflect.TypeOf((*MockRunRepository)(nil).Finish), ctx, params)
+}
+
+// ListBySourceID mocks base method.
+func (m *MockRunRepository) ListBySourceID(ctx context.Context, params collector.ListRunsParams) ([]collector.CollectionRun, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBySourceID", ctx, params)
+	ret0, _ := ret[0].([]collector.CollectionRun)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListBySourceID indicates an expected call of ListBySourceID.
+func (mr *MockRunRepositoryMockRecorder) ListBySourceID(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBySourceID", reflect.TypeOf((*MockRunRepository)(nil).ListBySourceID), ctx, params)
 }

@@ -120,6 +120,21 @@ func TestCollectionHandler_CollectSource(t *testing.T) {
 			wantCode:   "collector_not_found",
 		},
 		{
+			name:   "collection in progress",
+			userID: 100,
+			path:   "/api/v1/sources/42/collect",
+			mock: func(service *collectormocks.MockService) {
+				service.EXPECT().
+					CollectSource(gomock.Any(), collector.CollectSourceRequest{
+						UserID:   100,
+						SourceID: 42,
+					}).
+					Return(nil, collector.ErrCollectionInProgress)
+			},
+			wantStatus: http.StatusConflict,
+			wantCode:   "collection_in_progress",
+		},
+		{
 			name:   "internal service error",
 			userID: 100,
 			path:   "/api/v1/sources/42/collect",
@@ -173,6 +188,84 @@ func TestCollectionHandler_CollectSource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCollectionHandler_ListCollectionRuns(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := collectormocks.NewMockService(ctrl)
+	service.EXPECT().
+		ListCollectionRuns(gomock.Any(), collector.ListCollectionRunsRequest{
+			UserID:   100,
+			SourceID: 42,
+			Status:   collector.RunStatusFailed,
+			Limit:    10,
+			Offset:   20,
+		}).
+		Return(&collector.ListCollectionRunsResponse{
+			Runs: []collector.CollectionRunDTO{
+				{
+					ID:              9,
+					SourceID:        42,
+					Status:          collector.RunStatusFailed,
+					FetchedCount:    1,
+					InsertedCount:   0,
+					DuplicatedCount: 1,
+					ErrorMessage:    "fetch failed",
+				},
+			},
+			Total:  1,
+			Limit:  10,
+			Offset: 20,
+		}, nil)
+
+	router := newCollectionTestRouter(service, 100)
+	w := performCollectionRequest(router, http.MethodGet, "/api/v1/sources/42/collection-runs?status=failed&limit=10&offset=20")
+
+	assertCollectorStatus(t, w, http.StatusOK)
+	got := decodeCollectorJSONBody(t, w.Body)
+	data := got["data"].(map[string]any)
+	if data["total"] != float64(1) {
+		t.Fatalf("total = %v, want 1", data["total"])
+	}
+	runs := data["collection_runs"].([]any)
+	run := runs[0].(map[string]any)
+	assertFloatField(t, run, "run_id", 9)
+	assertStringField(t, run, "status", collector.RunStatusFailed)
+}
+
+func TestCollectionHandler_GetCollectionRun(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := collectormocks.NewMockService(ctrl)
+	service.EXPECT().
+		GetCollectionRun(gomock.Any(), collector.GetCollectionRunRequest{
+			UserID: 100,
+			RunID:  9,
+		}).
+		Return(&collector.GetCollectionRunResponse{
+			Run: collector.CollectionRunDTO{
+				ID:              9,
+				SourceID:        42,
+				Status:          collector.RunStatusSuccess,
+				FetchedCount:    3,
+				InsertedCount:   2,
+				DuplicatedCount: 1,
+			},
+		}, nil)
+
+	router := newCollectionTestRouter(service, 100)
+	w := performCollectionRequest(router, http.MethodGet, "/api/v1/collection-runs/9")
+
+	assertCollectorStatus(t, w, http.StatusOK)
+	got := decodeCollectorJSONBody(t, w.Body)
+	data := got["data"].(map[string]any)
+	run := data["collection_run"].(map[string]any)
+	assertFloatField(t, run, "run_id", 9)
+	assertFloatField(t, run, "source_id", 42)
+	assertStringField(t, run, "status", collector.RunStatusSuccess)
 }
 
 func newCollectionTestRouter(service collector.Service, userID int64) *gin.Engine {

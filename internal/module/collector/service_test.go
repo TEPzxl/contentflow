@@ -440,6 +440,188 @@ func TestCollectionService_CollectSource(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectionService_CollectSource_returnsInProgressWhenLockNotAcquired(t *testing.T) {
+	now := fixedTime()
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	sourceRepo := sourcemocks.NewMockRepository(ctrl)
+	runRepo := collectormocks.NewMockRunRepository(ctrl)
+	articleWriter := collectormocks.NewMockArticleWriter(ctrl)
+
+	sourceRepo.EXPECT().
+		FindByUserIDAndID(ctx, int64(100), int64(1)).
+		Return(sampleSourceModel(), nil)
+
+	registry, err := collector.NewRegistry(fakeCollector{sourceType: source.TypeRSS})
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+
+	svc := collector.NewService(
+		sourceRepo,
+		runRepo,
+		registry,
+		articleWriter,
+		collector.WithNow(func() time.Time { return now }),
+		collector.WithCollectionLock(&fakeCollectionLock{acquired: false}),
+	)
+
+	resp, err := svc.CollectSource(ctx, collector.CollectSourceRequest{
+		UserID:   100,
+		SourceID: 1,
+	})
+	if !errors.Is(err, collector.ErrCollectionInProgress) {
+		t.Fatalf("CollectSource() error = %v, want %v", err, collector.ErrCollectionInProgress)
+	}
+	if resp != nil {
+		t.Fatalf("CollectSource() response = %#v, want nil", resp)
+	}
+}
+
+func TestCollectionService_ListCollectionRuns(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	sourceRepo := sourcemocks.NewMockRepository(ctrl)
+	runRepo := collectormocks.NewMockRunRepository(ctrl)
+	articleWriter := collectormocks.NewMockArticleWriter(ctrl)
+
+	sourceRepo.EXPECT().
+		FindByUserIDAndID(ctx, int64(100), int64(1)).
+		Return(sampleSourceModel(), nil)
+
+	runRepo.EXPECT().
+		ListBySourceID(ctx, collector.ListRunsParams{
+			SourceID: 1,
+			Status:   collector.RunStatusFailed,
+			Limit:    100,
+			Offset:   0,
+		}).
+		Return([]collector.CollectionRun{
+			sampleCollectionRun(9, collector.RunStatusFailed),
+		}, int64(1), nil)
+
+	registry, err := collector.NewRegistry()
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+
+	svc := collector.NewService(sourceRepo, runRepo, registry, articleWriter)
+	resp, err := svc.ListCollectionRuns(ctx, collector.ListCollectionRunsRequest{
+		UserID:   100,
+		SourceID: 1,
+		Status:   collector.RunStatusFailed,
+		Limit:    200,
+		Offset:   -1,
+	})
+	if err != nil {
+		t.Fatalf("ListCollectionRuns() error = %v", err)
+	}
+	if resp.Total != 1 {
+		t.Fatalf("Total = %d, want 1", resp.Total)
+	}
+	if resp.Limit != 100 {
+		t.Fatalf("Limit = %d, want 100", resp.Limit)
+	}
+	if resp.Offset != 0 {
+		t.Fatalf("Offset = %d, want 0", resp.Offset)
+	}
+	if len(resp.Runs) != 1 || resp.Runs[0].ID != 9 {
+		t.Fatalf("Runs = %#v, want run id 9", resp.Runs)
+	}
+}
+
+func TestCollectionService_ListCollectionRuns_sourceNotAccessible(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	sourceRepo := sourcemocks.NewMockRepository(ctrl)
+	runRepo := collectormocks.NewMockRunRepository(ctrl)
+	articleWriter := collectormocks.NewMockArticleWriter(ctrl)
+
+	sourceRepo.EXPECT().
+		FindByUserIDAndID(ctx, int64(100), int64(999)).
+		Return(nil, source.ErrSourceNotFound)
+
+	registry, err := collector.NewRegistry()
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+
+	svc := collector.NewService(sourceRepo, runRepo, registry, articleWriter)
+	resp, err := svc.ListCollectionRuns(ctx, collector.ListCollectionRunsRequest{
+		UserID:   100,
+		SourceID: 999,
+	})
+	if !errors.Is(err, source.ErrSourceNotAccessible) {
+		t.Fatalf("ListCollectionRuns() error = %v, want %v", err, source.ErrSourceNotAccessible)
+	}
+	if resp != nil {
+		t.Fatalf("ListCollectionRuns() response = %#v, want nil", resp)
+	}
+}
+
+func TestCollectionService_GetCollectionRun(t *testing.T) {
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	sourceRepo := sourcemocks.NewMockRepository(ctrl)
+	runRepo := collectormocks.NewMockRunRepository(ctrl)
+	articleWriter := collectormocks.NewMockArticleWriter(ctrl)
+
+	runRepo.EXPECT().
+		FindByUserIDAndID(ctx, int64(100), int64(9)).
+		Return(ptrCollectionRun(sampleCollectionRun(9, collector.RunStatusSuccess)), nil)
+
+	registry, err := collector.NewRegistry()
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+
+	svc := collector.NewService(sourceRepo, runRepo, registry, articleWriter)
+	resp, err := svc.GetCollectionRun(ctx, collector.GetCollectionRunRequest{
+		UserID: 100,
+		RunID:  9,
+	})
+	if err != nil {
+		t.Fatalf("GetCollectionRun() error = %v", err)
+	}
+	if resp.Run.ID != 9 {
+		t.Fatalf("Run.ID = %d, want 9", resp.Run.ID)
+	}
+	if resp.Run.StartedAt == "" {
+		t.Fatal("Run.StartedAt is empty")
+	}
+	if resp.Run.FinishedAt == nil || *resp.Run.FinishedAt == "" {
+		t.Fatalf("Run.FinishedAt = %v, want non-empty", resp.Run.FinishedAt)
+	}
+}
+
+type fakeCollectionLock struct {
+	acquired bool
+	released bool
+}
+
+func (l *fakeCollectionLock) Acquire(ctx context.Context, sourceID int64, ttl time.Duration) (collector.CollectionLockReleaseFunc, bool, error) {
+	if !l.acquired {
+		return nil, false, nil
+	}
+	return func(context.Context) error {
+		l.released = true
+		return nil
+	}, true, nil
+}
+
 func fixedTime() time.Time {
 	return time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 }
@@ -461,6 +643,27 @@ func sampleSourceModel() *source.Source {
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
+}
+
+func sampleCollectionRun(id int64, status string) collector.CollectionRun {
+	now := fixedTime()
+
+	return collector.CollectionRun{
+		ID:              id,
+		SourceID:        1,
+		Status:          status,
+		StartedAt:       now.Add(-time.Minute),
+		FinishedAt:      &now,
+		FetchedCount:    3,
+		InsertedCount:   2,
+		DuplicatedCount: 1,
+		ErrorMessage:    "",
+		CreatedAt:       now.Add(-time.Minute),
+	}
+}
+
+func ptrCollectionRun(run collector.CollectionRun) *collector.CollectionRun {
+	return &run
 }
 
 func sampleCollectedItems() []collector.CollectedItem {

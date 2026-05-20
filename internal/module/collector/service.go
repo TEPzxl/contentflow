@@ -11,8 +11,10 @@ import (
 )
 
 var (
-	ErrCollectorNotFound = errors.New("collector not found")
-	ErrCollectionFailed  = errors.New("collection failed")
+	ErrCollectorNotFound     = errors.New("collector not found")
+	ErrCollectionFailed      = errors.New("collection failed")
+	ErrCollectionInProgress  = errors.New("collection in progress")
+	defaultCollectionLockTTL = 10 * time.Minute
 )
 
 type ArticleWriter interface {
@@ -21,6 +23,8 @@ type ArticleWriter interface {
 
 type Service interface {
 	CollectSource(ctx context.Context, req CollectSourceRequest) (*CollectSourceResponse, error)
+	ListCollectionRuns(ctx context.Context, req ListCollectionRunsRequest) (*ListCollectionRunsResponse, error)
+	GetCollectionRun(ctx context.Context, req GetCollectionRunRequest) (*GetCollectionRunResponse, error)
 }
 
 type CollectionObservation struct {
@@ -39,12 +43,20 @@ type CollectionObserver interface {
 	ObserveCollection(ctx context.Context, observation CollectionObservation)
 }
 
+type CollectionLockReleaseFunc func(ctx context.Context) error
+
+type CollectionLock interface {
+	Acquire(ctx context.Context, sourceID int64, ttl time.Duration) (CollectionLockReleaseFunc, bool, error)
+}
+
 type CollectionService struct {
 	sourceRepo    source.Repository
 	runRepo       RunRepository
 	registry      *Registry
 	articleWriter ArticleWriter
 	observer      CollectionObserver
+	lock          CollectionLock
+	lockTTL       time.Duration
 	logger        *slog.Logger
 	now           func() time.Time
 }
@@ -71,6 +83,20 @@ func WithLogger(logger *slog.Logger) Option {
 	}
 }
 
+func WithCollectionLock(lock CollectionLock) Option {
+	return func(cs *CollectionService) {
+		cs.lock = lock
+	}
+}
+
+func WithCollectionLockTTL(ttl time.Duration) Option {
+	return func(cs *CollectionService) {
+		if ttl > 0 {
+			cs.lockTTL = ttl
+		}
+	}
+}
+
 func NewService(sourceRepo source.Repository, runRepo RunRepository, registry *Registry, articleWriter ArticleWriter, opts ...Option) Service {
 	s := &CollectionService{
 		sourceRepo:    sourceRepo,
@@ -78,6 +104,7 @@ func NewService(sourceRepo source.Repository, runRepo RunRepository, registry *R
 		registry:      registry,
 		articleWriter: articleWriter,
 		logger:        slog.Default(),
+		lockTTL:       defaultCollectionLockTTL,
 		now:           func() time.Time { return time.Now().UTC() },
 	}
 
@@ -100,6 +127,24 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 	c, ok := s.registry.Get(src.Type)
 	if !ok {
 		return nil, ErrCollectorNotFound
+	}
+
+	release, acquired, err := s.acquireLock(ctx, src.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !acquired {
+		return nil, ErrCollectionInProgress
+	}
+	if release != nil {
+		defer func() {
+			if err := release(context.Background()); err != nil {
+				s.logger.Warn("release collection lock failed",
+					slog.Int64("source_id", src.ID),
+					slog.String("error", err.Error()),
+				)
+			}
+		}()
 	}
 
 	now := s.now()
@@ -174,6 +219,62 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 		ErrorMessage:    "",
 	}, nil
 }
+
+func (s *CollectionService) acquireLock(ctx context.Context, sourceID int64) (CollectionLockReleaseFunc, bool, error) {
+	if s.lock == nil {
+		return nil, true, nil
+	}
+	release, acquired, err := s.lock.Acquire(ctx, sourceID, s.lockTTL)
+	if err != nil {
+		return nil, false, fmt.Errorf("acquire collection lock: %w", err)
+	}
+	return release, acquired, nil
+}
+
+func (s *CollectionService) ListCollectionRuns(ctx context.Context, req ListCollectionRunsRequest) (*ListCollectionRunsResponse, error) {
+	src, err := s.sourceRepo.FindByUserIDAndID(ctx, req.UserID, req.SourceID)
+	if errors.Is(err, source.ErrSourceNotFound) {
+		return nil, source.ErrSourceNotAccessible
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find source: %w", err)
+	}
+
+	limit := normalizeCollectionRunLimit(req.Limit)
+	offset := normalizeCollectionRunOffset(req.Offset)
+
+	runs, total, err := s.runRepo.ListBySourceID(ctx, ListRunsParams{
+		SourceID: src.ID,
+		Status:   req.Status,
+		Limit:    limit,
+		Offset:   offset,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list collection runs: %w", err)
+	}
+
+	return &ListCollectionRunsResponse{
+		Runs:   toCollectionRunDTOs(runs),
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+	}, nil
+}
+
+func (s *CollectionService) GetCollectionRun(ctx context.Context, req GetCollectionRunRequest) (*GetCollectionRunResponse, error) {
+	run, err := s.runRepo.FindByUserIDAndID(ctx, req.UserID, req.RunID)
+	if errors.Is(err, ErrCollectionRunNotFound) {
+		return nil, ErrCollectionRunNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find collection run: %w", err)
+	}
+
+	return &GetCollectionRunResponse{
+		Run: toCollectionRunDTO(*run),
+	}, nil
+}
+
 func (s *CollectionService) finishFailed(
 	ctx context.Context,
 	runID int64,
@@ -253,4 +354,49 @@ func (s *CollectionService) observe(ctx context.Context, observation CollectionO
 		return
 	}
 	s.observer.ObserveCollection(ctx, observation)
+}
+
+func normalizeCollectionRunLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func normalizeCollectionRunOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+func toCollectionRunDTOs(runs []CollectionRun) []CollectionRunDTO {
+	items := make([]CollectionRunDTO, 0, len(runs))
+	for _, run := range runs {
+		items = append(items, toCollectionRunDTO(run))
+	}
+	return items
+}
+
+func toCollectionRunDTO(run CollectionRun) CollectionRunDTO {
+	var finishedAt *string
+	if run.FinishedAt != nil {
+		value := run.FinishedAt.Format(time.RFC3339Nano)
+		finishedAt = &value
+	}
+
+	return CollectionRunDTO{
+		ID:              run.ID,
+		SourceID:        run.SourceID,
+		Status:          run.Status,
+		StartedAt:       run.StartedAt.Format(time.RFC3339Nano),
+		FinishedAt:      finishedAt,
+		FetchedCount:    run.FetchedCount,
+		InsertedCount:   run.InsertedCount,
+		DuplicatedCount: run.DuplicatedCount,
+		ErrorMessage:    run.ErrorMessage,
+	}
 }

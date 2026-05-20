@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: contentflow API
-  version: 0.13.0
+  version: 0.14.0
   description: Backend API for contentflow, a content aggregation service.
 servers:
   - url: http://localhost:8080
@@ -258,6 +258,48 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /api/v1/sources/{id}/collection-runs:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Collection]
+      summary: List collection runs for a source
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [running, queued, success, failed]
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Collection runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionRunListEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/collection-runs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [Collection]
+      summary: Get collection run
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Collection run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionRunEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/articles:
     get:
       tags: [Articles]
@@ -676,6 +718,13 @@ components:
         source_id:
           type: integer
           format: int64
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
         status:
           type: string
           enum: [running, queued, success, failed]
@@ -695,6 +744,23 @@ components:
           properties:
             collection_run:
               $ref: "#/components/schemas/CollectionRun"
+    CollectionRunListEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            collection_runs:
+              type: array
+              items:
+                $ref: "#/components/schemas/CollectionRun"
+            total:
+              type: integer
+              format: int64
+            limit:
+              type: integer
+            offset:
+              type: integer
     CollectionTask:
       type: object
       properties:
