@@ -14,6 +14,7 @@ tags:
   - name: Collection
   - name: Collection Jobs
   - name: Articles
+  - name: AI
 paths:
   /healthz:
     get:
@@ -458,6 +459,144 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ArticleEnvelope"
+  /api/v1/articles/{id}/summary:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [AI]
+      summary: Queue article summary generation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                regenerate:
+                  type: boolean
+      responses:
+        "200":
+          description: Summary job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleSummaryEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    get:
+      tags: [AI]
+      summary: Get article summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Article summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleSummaryEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/articles/{id}/embedding:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      tags: [AI]
+      summary: Generate or refresh article embedding
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Article embedding metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleEmbeddingEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/articles/{id}/similar:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      tags: [AI]
+      summary: List similar articles
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Similar articles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimilarArticleListEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/ai/digests/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema:
+          type: string
+          format: date
+    post:
+      tags: [AI]
+      summary: Generate daily digest
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Daily digest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyDigestEnvelope"
+    get:
+      tags: [AI]
+      summary: Get daily digest
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Daily digest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyDigestEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/ai/rag-search:
+    post:
+      tags: [AI]
+      summary: Ask a question over user articles with citations
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                limit:
+                  type: integer
+                  default: 5
+      responses:
+        "200":
+          description: RAG answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RAGAnswerEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 components:
   securitySchemes:
     bearerAuth:
@@ -975,3 +1114,169 @@ components:
               type: integer
             offset:
               type: integer
+    ArticleSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        article_id:
+          type: integer
+          format: int64
+        model:
+          type: string
+        prompt_version:
+          type: string
+        summary:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, succeeded, failed]
+        attempts:
+          type: integer
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ArticleSummaryEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            summary:
+              $ref: "#/components/schemas/ArticleSummary"
+    ArticleEmbedding:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        article_id:
+          type: integer
+          format: int64
+        model:
+          type: string
+        version:
+          type: string
+        dimensions:
+          type: integer
+        content_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ArticleEmbeddingEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            embedding:
+              $ref: "#/components/schemas/ArticleEmbedding"
+    SimilarArticle:
+      type: object
+      properties:
+        article_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        summary:
+          type: string
+        url:
+          type: string
+          nullable: true
+        score:
+          type: number
+          format: double
+    SimilarArticleListEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            articles:
+              type: array
+              items:
+                $ref: "#/components/schemas/SimilarArticle"
+    DailyDigest:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        digest_date:
+          type: string
+          format: date
+        model:
+          type: string
+        prompt_version:
+          type: string
+        summary:
+          type: string
+        article_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        status:
+          type: string
+          enum: [succeeded]
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DailyDigestEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            digest:
+              $ref: "#/components/schemas/DailyDigest"
+    Citation:
+      type: object
+      properties:
+        article_id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        url:
+          type: string
+          nullable: true
+        snippet:
+          type: string
+    RAGAnswer:
+      type: object
+      properties:
+        model:
+          type: string
+        prompt_version:
+          type: string
+        answer:
+          type: string
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Citation"
+    RAGAnswerEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            answer:
+              $ref: "#/components/schemas/RAGAnswer"

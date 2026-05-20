@@ -91,6 +91,63 @@ export type CollectionRun = {
   error_message: string;
 };
 
+export type ArticleSummary = {
+  id: number;
+  article_id: number;
+  model: string;
+  prompt_version: string;
+  summary: string;
+  status: "pending" | "processing" | "succeeded" | "failed";
+  attempts: number;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ArticleEmbedding = {
+  id: number;
+  article_id: number;
+  model: string;
+  version: string;
+  dimensions: number;
+  content_hash: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SimilarArticle = {
+  article_id: number;
+  title: string;
+  summary: string;
+  url?: string | null;
+  score: number;
+};
+
+export type DailyDigest = {
+  id: number;
+  digest_date: string;
+  model: string;
+  prompt_version: string;
+  summary: string;
+  article_ids: number[];
+  status: string;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RAGAnswer = {
+  model: string;
+  prompt_version: string;
+  answer: string;
+  citations: Array<{
+    article_id: number;
+    title: string;
+    url?: string | null;
+    snippet: string;
+  }>;
+};
+
 export type ListResponse<TItem, TKey extends string> = Record<TKey, TItem[]> & {
   total: number;
   limit: number;

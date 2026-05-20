@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, humanizeAPIError } from "@/lib/api/client";
-import type { Article, Source } from "@/lib/api/types";
+import { APIError, type Article, type ArticleSummary, type SimilarArticle, type Source } from "@/lib/api/types";
 import { Badge, Button, EmptyState, ErrorBanner, Panel, SelectInput, TextInput } from "@/components/ui";
 
 type ArticleWorkspaceProps = {
@@ -28,6 +28,10 @@ export function ArticleWorkspace({
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<ArticleSummary | null>(null);
+  const [similarArticles, setSimilarArticles] = useState<SimilarArticle[]>([]);
+  const [aiError, setAIError] = useState("");
+  const [aiLoading, setAILoading] = useState(false);
 
   const loadArticles = useCallback(async (nextOffset = offset) => {
     setError("");
@@ -56,6 +60,28 @@ export function ArticleWorkspace({
     loadArticles(0).catch((err: unknown) => setError(humanizeAPIError(err)));
   }, [loadArticles]);
 
+  useEffect(() => {
+    if (!selectedArticle) {
+      setSummary(null);
+      setSimilarArticles([]);
+      return;
+    }
+    setAIError("");
+    api
+      .getArticleSummary(selectedArticle.id)
+      .then((result) => setSummary(result.summary))
+      .catch((err: unknown) => {
+        if (!(err instanceof APIError) || err.code !== "summary_not_found") {
+          setAIError(humanizeAPIError(err));
+        }
+        setSummary(null);
+      });
+    api
+      .listSimilarArticles(selectedArticle.id, 5)
+      .then((result) => setSimilarArticles(result.articles))
+      .catch(() => setSimilarArticles([]));
+  }, [selectedArticle]);
+
   async function updateRead(article: Article, isRead: boolean) {
     const result = await api.markArticleRead(article.id, isRead);
     onSelectedArticleChange(result.article);
@@ -66,6 +92,39 @@ export function ArticleWorkspace({
     const result = await api.saveArticle(article.id, isSaved);
     onSelectedArticleChange(result.article);
     await loadArticles(offset);
+  }
+
+  async function requestSummary(regenerate = false) {
+    if (!selectedArticle) {
+      return;
+    }
+    setAIError("");
+    setAILoading(true);
+    try {
+      const result = await api.requestArticleSummary(selectedArticle.id, regenerate);
+      setSummary(result.summary);
+    } catch (err: unknown) {
+      setAIError(humanizeAPIError(err));
+    } finally {
+      setAILoading(false);
+    }
+  }
+
+  async function refreshSimilar() {
+    if (!selectedArticle) {
+      return;
+    }
+    setAIError("");
+    setAILoading(true);
+    try {
+      await api.generateArticleEmbedding(selectedArticle.id);
+      const result = await api.listSimilarArticles(selectedArticle.id, 5);
+      setSimilarArticles(result.articles);
+    } catch (err: unknown) {
+      setAIError(humanizeAPIError(err));
+    } finally {
+      setAILoading(false);
+    }
   }
 
   return (
@@ -172,6 +231,57 @@ export function ArticleWorkspace({
                 打开原文
               </a>
             ) : null}
+            <section className="not-prose mt-6 rounded-md border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-950">AI 摘要</h3>
+                <div className="flex gap-2">
+                  <Button type="button" disabled={aiLoading} onClick={() => requestSummary(false)}>
+                    生成
+                  </Button>
+                  <Button type="button" disabled={aiLoading} onClick={() => requestSummary(true)}>
+                    重算
+                  </Button>
+                </div>
+              </div>
+              <ErrorBanner message={aiError} />
+              {summary ? (
+                <div className="mt-3 space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge tone={summary.status === "succeeded" ? "green" : summary.status === "failed" ? "red" : "amber"}>
+                      {summary.status}
+                    </Badge>
+                    <Badge tone="slate">{summary.model}</Badge>
+                    <Badge tone="slate">{summary.prompt_version}</Badge>
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{summary.summary || "摘要任务已入队，等待后台 worker 处理。"}</p>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">尚未生成摘要。</p>
+              )}
+            </section>
+            <section className="not-prose mt-4 rounded-md border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-950">相似文章</h3>
+                <Button type="button" disabled={aiLoading} onClick={refreshSimilar}>
+                  刷新向量
+                </Button>
+              </div>
+              {similarArticles.length === 0 ? (
+                <p className="mt-3 text-sm text-slate-500">暂无相似文章。</p>
+              ) : (
+                <ul className="mt-3 divide-y divide-slate-200 text-sm">
+                  {similarArticles.map((item) => (
+                    <li key={item.article_id} className="py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-slate-900">{item.title}</span>
+                        <Badge tone="blue">{item.score.toFixed(2)}</Badge>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-slate-500">{item.summary}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </article>
         ) : (
           <EmptyState>选择一篇文章查看正文。</EmptyState>

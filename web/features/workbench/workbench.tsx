@@ -8,10 +8,11 @@ import type { Article, CollectionRun, Source } from "@/lib/api/types";
 import { AuthPanel } from "@/features/auth/auth-panel";
 import { SourceManager } from "@/features/sources/source-manager";
 import { ArticleWorkspace } from "@/features/articles/article-workspace";
+import { AIPanel } from "@/features/ai/ai-panel";
 import { CollectionRunPanel } from "@/features/collection-runs/collection-run-panel";
 import { Badge, Button, ErrorBanner } from "@/components/ui";
 
-type View = "articles" | "sources" | "runs" | "settings";
+type View = "articles" | "sources" | "runs" | "ai" | "settings";
 
 export function Workbench() {
   const [session, setSession] = useState<SessionSnapshot | null>(() => readSession());
@@ -75,6 +76,7 @@ export function Workbench() {
             ["articles", "文章"] as const,
             ["sources", "来源"] as const,
             ["runs", "采集记录"] as const,
+            ["ai", "AI"] as const,
             ["settings", "设置"] as const
           ].map(([id, label]) => (
             <button
@@ -116,6 +118,7 @@ export function Workbench() {
           {view === "runs" ? (
             <CollectionRunPanel source={selectedSource} latestRun={latestRun} onSelectSource={setSelectedSourceID} sources={sources} />
           ) : null}
+          {view === "ai" ? <AIPanel /> : null}
           {view === "settings" ? (
             <section className="rounded-lg border border-slate-200 bg-white p-4">
               <h2 className="text-sm font-semibold text-slate-950">设置</h2>

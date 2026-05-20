@@ -19,6 +19,7 @@ import (
 	contenthttp "github.com/tepzxl/contentflow/internal/http"
 	"github.com/tepzxl/contentflow/internal/http/middleware"
 	"github.com/tepzxl/contentflow/internal/logger"
+	"github.com/tepzxl/contentflow/internal/module/ai"
 	"github.com/tepzxl/contentflow/internal/module/article"
 	"github.com/tepzxl/contentflow/internal/module/auth"
 	"github.com/tepzxl/contentflow/internal/module/collectionjob"
@@ -172,6 +173,10 @@ func Run() error {
 		article.WithListCache(articleListCache, cfg.Cache.ArticleListTTL),
 	)
 	articleHandler := article.NewHandler(articleService)
+	aiRepo := ai.NewRepository(db)
+	aiService := ai.NewService(aiRepo, articleRepo, ai.NewExtractiveAssistant())
+	aiHandler := ai.NewHandler(aiService)
+	aiSummaryWorker := ai.NewSummaryWorker(aiService, ai.WithWorkerLogger(log))
 
 	runRepo := collector.NewRunRepository(db)
 
@@ -266,6 +271,7 @@ func Run() error {
 			auth.RegisterRoutes(api, authHandler, authRequired, loginRateLimit)
 			source.RegisterRoutes(api, sourceHandler, authRequired)
 			article.RegisterRoutes(api, articleHandler, authRequired)
+			ai.RegisterRoutes(api, aiHandler, authRequired)
 			registerCollectionRoutes(api)
 			registerCollectionJobRoutes(api)
 		}, routerOptions...)
@@ -289,6 +295,16 @@ func Run() error {
 			defer backgroundWG.Done()
 			if err := collectionScheduler.Run(backgroundCtx); err != nil {
 				log.Error("collection scheduler stopped with error", slog.String("error", err.Error()))
+			}
+		}()
+	}
+
+	if plan.Scheduler || plan.Worker {
+		backgroundWG.Add(1)
+		go func() {
+			defer backgroundWG.Done()
+			if err := aiSummaryWorker.Run(backgroundCtx); err != nil {
+				log.Error("ai summary worker stopped with error", slog.String("error", err.Error()))
 			}
 		}()
 	}

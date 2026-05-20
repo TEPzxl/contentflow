@@ -3,11 +3,16 @@ import { clearSession, readSession, saveSession } from "@/lib/auth/session";
 import type {
   APIEnvelope,
   Article,
+  ArticleEmbedding,
+  ArticleSummary,
   AuthTokens,
   CollectionRun,
+  DailyDigest,
   ListResponse,
   LoginPayload,
+  RAGAnswer,
   RegisterPayload,
+  SimilarArticle,
   Source,
   SourcePayload,
   SourceUpdatePayload
@@ -152,6 +157,30 @@ export const api = {
       method: "PATCH",
       body: { is_saved: isSaved }
     });
+  },
+  requestArticleSummary(id: number, regenerate = false) {
+    return request<{ summary: ArticleSummary }>(`/articles/${id}/summary`, {
+      method: "POST",
+      body: { regenerate }
+    });
+  },
+  getArticleSummary(id: number) {
+    return request<{ summary: ArticleSummary }>(`/articles/${id}/summary`);
+  },
+  generateArticleEmbedding(id: number) {
+    return request<{ embedding: ArticleEmbedding }>(`/articles/${id}/embedding`, { method: "POST" });
+  },
+  listSimilarArticles(id: number, limit = 5) {
+    return request<{ articles: SimilarArticle[] }>(withQuery(`/articles/${id}/similar`, { limit }));
+  },
+  generateDigest(date: string) {
+    return request<{ digest: DailyDigest }>(`/ai/digests/${date}`, { method: "POST" });
+  },
+  getDigest(date: string) {
+    return request<{ digest: DailyDigest }>(`/ai/digests/${date}`);
+  },
+  ragSearch(payload: { query: string; limit?: number }) {
+    return request<{ answer: RAGAnswer }>("/ai/rag-search", { method: "POST", body: payload });
   }
 };
 
@@ -168,6 +197,10 @@ export function humanizeAPIError(error: unknown) {
     collection_in_progress: "该来源正在采集中，请稍后查看结果",
     collection_run_not_found: "采集记录不存在",
     article_not_found: "文章不存在",
+    summary_not_found: "摘要尚未生成",
+    embedding_not_found: "向量尚未生成",
+    digest_not_found: "日报尚未生成",
+    empty_query: "请输入搜索问题",
     rate_limited: "操作过于频繁，请稍后再试"
   };
 
