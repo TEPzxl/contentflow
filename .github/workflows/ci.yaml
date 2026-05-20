@@ -11,6 +11,7 @@ permissions:
 
 env:
   GO_VERSION: "1.25.x"
+  NODE_VERSION: "22"
   TESTCONTAINERS_RYUK_DISABLED: "true"
 
 jobs:
@@ -27,14 +28,39 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix web ci
+
       - name: Check Go modules
         run: scripts/ci.sh tidy-check
 
       - name: Run unit tests
         run: scripts/ci.sh test
 
+      - name: Generate backend coverage
+        run: scripts/ci.sh coverage
+
       - name: Run go vet
         run: scripts/ci.sh vet
+
+      - name: Run frontend audit
+        run: scripts/ci.sh web-audit
+
+      - name: Run frontend typecheck
+        run: scripts/ci.sh web-typecheck
+
+      - name: Run frontend lint
+        run: scripts/ci.sh web-lint
+
+      - name: Build frontend
+        run: scripts/ci.sh web-build
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
@@ -50,6 +76,12 @@ jobs:
       - name: Validate Kubernetes manifests
         run: scripts/ci.sh k8s
 
+      - name: Upload backend coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage/
+
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
@@ -63,8 +95,24 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix web ci
+
+      - name: Install Playwright Chromium
+        run: npx --prefix web playwright install --with-deps chromium
+
       - name: Run integration tests
         run: scripts/ci.sh integration
+
+      - name: Run frontend E2E
+        run: scripts/ci.sh web-test
 
   docker-build:
     name: Docker Build

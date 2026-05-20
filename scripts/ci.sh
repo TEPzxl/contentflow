@@ -20,6 +20,11 @@ case "${cmd}" in
   test)
     go test -count=1 ./...
     ;;
+  coverage)
+    mkdir -p coverage
+    go test -count=1 -covermode=atomic -coverprofile=coverage/backend.out ./...
+    go tool cover -func=coverage/backend.out | tee coverage/backend.txt
+    ;;
   vet)
     go vet ./...
     ;;
@@ -40,6 +45,24 @@ case "${cmd}" in
   k8s)
     scripts/validate_k8s.sh
     ;;
+  web-audit)
+    npm --prefix web audit --audit-level=moderate
+    ;;
+  web-typecheck)
+    npm --prefix web run typecheck
+    ;;
+  web-lint)
+    npm --prefix web run lint
+    ;;
+  web-test)
+    npm --prefix web run test
+    ;;
+  web-build)
+    npm --prefix web run build
+    ;;
+  benchmark)
+    go test -run '^$' -bench=. -benchmem ./internal/module/article ./internal/module/collector/rss ./internal/module/collectionjob
+    ;;
   integration)
     go test -count=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
     ;;
@@ -52,13 +75,18 @@ case "${cmd}" in
   all)
     "$0" tidy-check
     "$0" test
+    "$0" coverage
     "$0" vet
     "$0" openapi
     "$0" migrations
     "$0" k8s
+    "$0" web-audit
+    "$0" web-typecheck
+    "$0" web-lint
+    "$0" web-build
     ;;
   *)
-    echo "Usage: $0 [tidy-check|test|vet|lint|openapi|migrations|k8s|integration|docker-build|all]" >&2
+    echo "Usage: $0 [tidy-check|test|coverage|vet|lint|openapi|migrations|k8s|web-audit|web-typecheck|web-lint|web-test|web-build|benchmark|integration|docker-build|all]" >&2
     exit 1
     ;;
 esac
