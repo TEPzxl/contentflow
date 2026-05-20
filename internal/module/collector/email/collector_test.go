@@ -3,6 +3,8 @@ package email
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -198,6 +200,127 @@ func TestCollector_Type(t *testing.T) {
 
 	if got := c.Type(); got != source.TypeEmail {
 		t.Fatalf("Type() = %q, want %q", got, source.TypeEmail)
+	}
+}
+
+func TestCollector_Collect_defaultReaderSupportsDirectoryProvider(t *testing.T) {
+	dir := t.TempDir()
+	writeTestEmail(t, filepath.Join(dir, "weekly.eml"), ""+
+		"Message-ID: <default-reader@example.com>\r\n"+
+		"Subject: Default Reader News\r\n"+
+		"From: news@example.com\r\n"+
+		"To: reader@example.com\r\n"+
+		"Content-Type: text/plain; charset=utf-8\r\n"+
+		"\r\n"+
+		"Default reader body.\r\n")
+
+	c := NewCollector()
+
+	items, err := c.Collect(context.Background(), sampleEmailSource(`{
+		"provider": "directory",
+		"mailbox": "`+dir+`"
+	}`))
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Title != "Default Reader News" {
+		t.Fatalf("Title = %q", items[0].Title)
+	}
+	if items[0].Content != "Default reader body." {
+		t.Fatalf("Content = %q", items[0].Content)
+	}
+}
+
+func TestDirectoryMailboxReader_Read(t *testing.T) {
+	dir := t.TempDir()
+	writeTestEmail(t, filepath.Join(dir, "weekly.eml"), ""+
+		"Message-ID: <weekly@example.com>\r\n"+
+		"Subject: Weekly Go News\r\n"+
+		"From: Go Newsletter <news@example.com>\r\n"+
+		"To: Reader <reader@example.com>, reader+go@example.com\r\n"+
+		"Date: Wed, 13 May 2026 12:00:00 +0000\r\n"+
+		"Content-Type: text/plain; charset=utf-8\r\n"+
+		"\r\n"+
+		"Hello from Go newsletter.\r\n")
+
+	reader := NewDirectoryMailboxReader()
+
+	messages, err := reader.Read(context.Background(), Config{
+		Provider: "directory",
+		Mailbox:  dir,
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+
+	msg := messages[0]
+	if msg.MessageID != "<weekly@example.com>" {
+		t.Fatalf("MessageID = %q", msg.MessageID)
+	}
+	if msg.Subject != "Weekly Go News" {
+		t.Fatalf("Subject = %q", msg.Subject)
+	}
+	if msg.From != "Go Newsletter <news@example.com>" {
+		t.Fatalf("From = %q", msg.From)
+	}
+	if len(msg.To) != 2 {
+		t.Fatalf("len(To) = %d, want 2", len(msg.To))
+	}
+	if msg.Body != "Hello from Go newsletter." {
+		t.Fatalf("Body = %q", msg.Body)
+	}
+	if msg.Date == nil || !msg.Date.Equal(time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("Date = %v", msg.Date)
+	}
+}
+
+func TestDirectoryMailboxReader_Read_prefersPlainTextPart(t *testing.T) {
+	dir := t.TempDir()
+	writeTestEmail(t, filepath.Join(dir, "multipart.eml"), ""+
+		"Message-ID: <multipart@example.com>\r\n"+
+		"Subject: Multipart News\r\n"+
+		"From: news@example.com\r\n"+
+		"To: reader@example.com\r\n"+
+		"Content-Type: multipart/alternative; boundary=frontier\r\n"+
+		"\r\n"+
+		"--frontier\r\n"+
+		"Content-Type: text/html; charset=utf-8\r\n"+
+		"\r\n"+
+		"<p>HTML body</p>\r\n"+
+		"--frontier\r\n"+
+		"Content-Type: text/plain; charset=utf-8\r\n"+
+		"\r\n"+
+		"Plain body\r\n"+
+		"--frontier--\r\n")
+
+	reader := NewDirectoryMailboxReader()
+
+	messages, err := reader.Read(context.Background(), Config{
+		Provider: "directory",
+		Mailbox:  dir,
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if messages[0].Body != "Plain body" {
+		t.Fatalf("Body = %q", messages[0].Body)
+	}
+}
+
+func writeTestEmail(t *testing.T, path string, content string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write test email: %v", err)
 	}
 }
 

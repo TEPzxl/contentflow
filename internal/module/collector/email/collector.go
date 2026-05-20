@@ -20,6 +20,7 @@ var (
 )
 
 type Config struct {
+	Provider       string `json:"provider"`
 	Mailbox        string `json:"mailbox"`
 	FromFilter     string `json:"from_filter"`
 	RecipientAlias string `json:"recipient_alias"`
@@ -54,7 +55,7 @@ func WithMailboxReader(reader MailboxReader) Option {
 
 func NewCollector(opts ...Option) *Collector {
 	c := &Collector{
-		reader: emptyMailboxReader{},
+		reader: NewConfiguredMailboxReader(),
 	}
 
 	for _, opt := range opts {
@@ -106,6 +107,7 @@ func parseConfig(src *source.Source) (Config, error) {
 		return Config{}, fmt.Errorf("%w: %v", ErrInvalidEmailConfig, err)
 	}
 
+	cfg.Provider = strings.TrimSpace(strings.ToLower(cfg.Provider))
 	cfg.Mailbox = strings.TrimSpace(cfg.Mailbox)
 	cfg.FromFilter = strings.TrimSpace(cfg.FromFilter)
 	cfg.RecipientAlias = strings.TrimSpace(cfg.RecipientAlias)
@@ -204,4 +206,27 @@ type emptyMailboxReader struct{}
 
 func (emptyMailboxReader) Read(ctx context.Context, cfg Config) ([]Message, error) {
 	return []Message{}, nil
+}
+
+type ConfiguredMailboxReader struct {
+	directoryReader MailboxReader
+	emptyReader     MailboxReader
+}
+
+func NewConfiguredMailboxReader() *ConfiguredMailboxReader {
+	return &ConfiguredMailboxReader{
+		directoryReader: NewDirectoryMailboxReader(),
+		emptyReader:     emptyMailboxReader{},
+	}
+}
+
+func (r *ConfiguredMailboxReader) Read(ctx context.Context, cfg Config) ([]Message, error) {
+	switch cfg.Provider {
+	case "", "empty":
+		return r.emptyReader.Read(ctx, cfg)
+	case "directory":
+		return r.directoryReader.Read(ctx, cfg)
+	default:
+		return nil, ErrInvalidEmailConfig
+	}
 }

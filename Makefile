@@ -46,6 +46,7 @@ mock:
 	@mockgen -source=internal/module/source/repository.go -destination=internal/module/source/mocks/repository_mock.go -package=sourcemocks
 	@mockgen -source=internal/module/collector/run_repository.go -destination=internal/module/collector/mocks/run_repository_mock.go -package=collectormocks
 	@mockgen -source=internal/module/collector/service.go -destination=internal/module/collector/mocks/service_mock.go -package=collectormocks
+	@mockgen -source=internal/module/article/repository.go -destination=internal/module/article/mocks/repository_mock.go -package=articlemocks
 
 
 run:

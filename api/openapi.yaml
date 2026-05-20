@@ -550,7 +550,24 @@ components:
           nullable: true
         config:
           type: object
+          description: |
+            Source-specific configuration. For email sources, the first supported real reader is
+            the directory provider: {"provider":"directory","mailbox":"/path/to/eml-dir"}.
           additionalProperties: true
+          properties:
+            provider:
+              type: string
+              enum: [directory, empty]
+              description: Email reader provider. Use directory to read RFC822 .eml files from mailbox.
+            mailbox:
+              type: string
+              description: Mailbox name or directory path, depending on provider.
+            from_filter:
+              type: string
+              description: Email sender substring filter.
+            recipient_alias:
+              type: string
+              description: Email recipient alias substring filter.
     UpdateSourceRequest:
       type: object
       properties:
@@ -563,6 +580,7 @@ components:
           type: boolean
         config:
           type: object
+          description: Source-specific configuration. Email sources support provider, mailbox, from_filter, and recipient_alias.
           additionalProperties: true
     Source:
       type: object
