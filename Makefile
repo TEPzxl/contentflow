@@ -2,7 +2,7 @@ APP_NAME := contentflow
 DATABASE_URL ?= postgres://contentflow:contentflow@localhost:5432/contentflow?sslmode=disable
 
 .PHONY: run dev tidy fmt test build compose-up compose-build compose-down compose-logs compose-ps logs dev-stack migrate-up migrate-down migrate-version migrate-force \
-	mock test-integration
+	mock test-integration web-dev web-build web-lint web-typecheck
 
 compose-up:
 	@docker compose -f deployments/docker-compose.yaml up -d --build
@@ -69,3 +69,15 @@ test-integration:
 
 build:
 	@go build -o $(APP_NAME) ./cmd/server
+
+web-dev:
+	@npm --prefix web run dev
+
+web-build:
+	@npm --prefix web run build
+
+web-lint:
+	@npm --prefix web run lint
+
+web-typecheck:
+	@npm --prefix web run typecheck

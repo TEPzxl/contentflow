@@ -40,6 +40,7 @@ contentflow 当前主体是 Go 后端内容聚合系统，后续规划使用 Rea
 - OpenAPI 契约：`api/openapi.yaml`
 - 本地 Docker Compose：`deployments/docker-compose.yaml`
 - Kubernetes 配置：`deployments/k8s/`
+- 前端应用：`web/`
 
 ## 项目结构
 
@@ -69,4 +70,5 @@ contentflow/
 ├── deployments/ # 部署配置
 ├── scripts/ # 部署脚本
 ├── tests/ # 测试
+└── web/ # Next.js 前端应用
 ```
