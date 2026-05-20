@@ -60,6 +60,9 @@ data:
         - kafka:9092
       group_id: contentflow-collection-worker
       max_attempts: 3
+      retry_backoff: 1m
+      outbox_batch_size: 100
+      outbox_dispatch_interval: 1s
 
     auth:
       access_token_ttl: 15m

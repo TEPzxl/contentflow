@@ -29,6 +29,7 @@ type CollectionRequested struct {
 	IdempotencyKey string    `json:"idempotency_key"`
 	Attempt        int       `json:"attempt"`
 	RequestedAt    time.Time `json:"requested_at"`
+	NextAttemptAt  time.Time `json:"next_attempt_at,omitempty"`
 }
 
 type CollectionCompleted struct {

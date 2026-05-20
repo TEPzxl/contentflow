@@ -91,13 +91,17 @@ func TestProducer_CollectSourceCompatibility(t *testing.T) {
 }
 
 type fakeEventWriter struct {
-	events []Event
-	err    error
+	events   []Event
+	err      error
+	failKeys map[string]error
 }
 
 func (w *fakeEventWriter) Write(ctx context.Context, event Event) error {
 	if w.err != nil {
 		return w.err
+	}
+	if err := w.failKeys[string(event.Key)]; err != nil {
+		return err
 	}
 	w.events = append(w.events, event)
 	return nil

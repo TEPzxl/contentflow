@@ -92,6 +92,39 @@ func TestWorker_HandleMessage(t *testing.T) {
 				if retry.Attempt != 1 {
 					t.Fatalf("retry attempt = %d, want 1", retry.Attempt)
 				}
+				if !retry.NextAttemptAt.Equal(now.Add(time.Minute)) {
+					t.Fatalf("retry next attempt = %v, want %v", retry.NextAttemptAt, now.Add(time.Minute))
+				}
+			},
+		},
+		{
+			name: "permanent failure writes dlq without retry",
+			event: CollectionRequested{
+				TaskID:         "task-4",
+				UserID:         100,
+				SourceID:       42,
+				IdempotencyKey: "collection:source:42",
+				Attempt:        0,
+				RequestedAt:    now,
+			},
+			service: &fakeCollectionService{
+				err: PermanentError(errCollect),
+			},
+			options: []WorkerOption{
+				WithMaxAttempts(3),
+				WithWorkerNow(func() time.Time { return now }),
+			},
+			want: func(t *testing.T, writer *fakeEventWriter) {
+				t.Helper()
+				if len(writer.events) != 2 {
+					t.Fatalf("event count = %d, want 2", len(writer.events))
+				}
+				if writer.events[0].Topic != TopicCollectionFailed {
+					t.Fatalf("first topic = %q", writer.events[0].Topic)
+				}
+				if writer.events[1].Topic != TopicCollectionDLQ {
+					t.Fatalf("second topic = %q", writer.events[1].Topic)
+				}
 			},
 		},
 		{
@@ -163,6 +196,93 @@ func TestWorker_HandleMessage(t *testing.T) {
 				tt.want(t, writer)
 			}
 		})
+	}
+}
+
+func TestWorker_HandleMessage_waitsUntilNextAttempt(t *testing.T) {
+	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
+	event := CollectionRequested{
+		TaskID:         "task-delayed",
+		UserID:         100,
+		SourceID:       42,
+		IdempotencyKey: "collection:source:42",
+		Attempt:        1,
+		RequestedAt:    now.Add(-time.Minute),
+		NextAttemptAt:  now.Add(2 * time.Minute),
+	}
+	service := &fakeCollectionService{
+		resp: &collector.CollectSourceResponse{
+			RunID:    11,
+			SourceID: 42,
+			Status:   collector.RunStatusSuccess,
+		},
+	}
+	var slept time.Duration
+	worker := NewWorker(
+		nil,
+		&fakeEventWriter{},
+		service,
+		WithWorkerNow(func() time.Time { return now }),
+		WithWorkerSleep(func(ctx context.Context, d time.Duration) error {
+			slept = d
+			return nil
+		}),
+	)
+
+	err := worker.HandleMessage(context.Background(), Message{
+		Topic: TopicCollectionRequested,
+		Key:   []byte(event.IdempotencyKey),
+		Value: marshalJSON(t, event),
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage() error = %v", err)
+	}
+	if slept != 2*time.Minute {
+		t.Fatalf("slept = %v, want %v", slept, 2*time.Minute)
+	}
+	if len(service.reqs) != 1 {
+		t.Fatalf("service calls = %d, want 1", len(service.reqs))
+	}
+}
+
+func TestWorker_HandleMessage_persistsDLQItem(t *testing.T) {
+	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
+	repo := newMemoryDLQRepository()
+	event := CollectionRequested{
+		TaskID:         "task-dlq",
+		UserID:         100,
+		SourceID:       42,
+		IdempotencyKey: "collection:source:42",
+		Attempt:        2,
+		RequestedAt:    now.Add(-time.Minute),
+	}
+	worker := NewWorker(
+		nil,
+		&fakeEventWriter{},
+		&fakeCollectionService{err: errCollect},
+		WithMaxAttempts(3),
+		WithWorkerNow(func() time.Time { return now }),
+		WithDLQRepository(repo),
+	)
+
+	err := worker.HandleMessage(context.Background(), Message{
+		Topic: TopicCollectionRequested,
+		Key:   []byte(event.IdempotencyKey),
+		Value: marshalJSON(t, event),
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage() error = %v", err)
+	}
+
+	items, total, err := repo.List(context.Background(), ListDLQItemsParams{Status: DLQStatusPending})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("dlq total/items = %d/%d, want 1/1", total, len(items))
+	}
+	if items[0].TaskID != "task-dlq" || items[0].ErrorMessage != errCollect.Error() {
+		t.Fatalf("dlq item = %#v", items[0])
 	}
 }
 

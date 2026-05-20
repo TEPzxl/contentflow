@@ -21,6 +21,8 @@ configMapGenerator:
     files:
       - 000001_create_initial_tables.up.sql=migrations/000001_create_initial_tables.up.sql
       - 000001_create_initial_tables.down.sql=migrations/000001_create_initial_tables.down.sql
+      - 000002_create_kafka_reliability_tables.up.sql=migrations/000002_create_kafka_reliability_tables.up.sql
+      - 000002_create_kafka_reliability_tables.down.sql=migrations/000002_create_kafka_reliability_tables.down.sql
 
 generatorOptions:
   disableNameSuffixHash: true

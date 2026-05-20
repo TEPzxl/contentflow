@@ -38,8 +38,11 @@ type Worker struct {
 	service     CollectionService
 	logger      *slog.Logger
 	observer    JobObserver
+	dlqRepo     DLQRepository
 	now         func() time.Time
+	sleep       func(ctx context.Context, d time.Duration) error
 	maxAttempts int
+	backoffBase time.Duration
 }
 
 type WorkerOption func(*Worker)
@@ -52,10 +55,26 @@ func WithWorkerNow(now func() time.Time) WorkerOption {
 	}
 }
 
+func WithWorkerSleep(sleep func(ctx context.Context, d time.Duration) error) WorkerOption {
+	return func(w *Worker) {
+		if sleep != nil {
+			w.sleep = sleep
+		}
+	}
+}
+
 func WithMaxAttempts(maxAttempts int) WorkerOption {
 	return func(w *Worker) {
 		if maxAttempts > 0 {
 			w.maxAttempts = maxAttempts
+		}
+	}
+}
+
+func WithRetryBackoff(base time.Duration) WorkerOption {
+	return func(w *Worker) {
+		if base > 0 {
+			w.backoffBase = base
 		}
 	}
 }
@@ -74,6 +93,12 @@ func WithJobObserver(observer JobObserver) WorkerOption {
 	}
 }
 
+func WithDLQRepository(repo DLQRepository) WorkerOption {
+	return func(w *Worker) {
+		w.dlqRepo = repo
+	}
+}
+
 func NewWorker(reader EventReader, writer EventWriter, service CollectionService, opts ...WorkerOption) *Worker {
 	w := &Worker{
 		reader:      reader,
@@ -81,7 +106,9 @@ func NewWorker(reader EventReader, writer EventWriter, service CollectionService
 		service:     service,
 		logger:      slog.Default(),
 		now:         func() time.Time { return time.Now().UTC() },
+		sleep:       sleepContext,
 		maxAttempts: 3,
+		backoffBase: time.Minute,
 	}
 
 	for _, opt := range opts {
@@ -115,6 +142,10 @@ func (w *Worker) HandleMessage(ctx context.Context, msg Message) error {
 	var event CollectionRequested
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidMessage, err)
+	}
+
+	if err := w.waitUntilNextAttempt(ctx, event); err != nil {
+		return err
 	}
 
 	resp, err := w.service.CollectSource(ctx, collector.CollectSourceRequest{
@@ -159,12 +190,55 @@ func (w *Worker) handleFailed(ctx context.Context, event CollectionRequested, ca
 	}
 
 	nextAttempt := event.Attempt + 1
-	if nextAttempt >= w.maxAttempts {
-		return w.writeJSON(ctx, TopicCollectionDLQ, event.IdempotencyKey, event)
+	if IsPermanentError(cause) || nextAttempt >= w.maxAttempts {
+		return w.writeDLQ(ctx, event, cause)
 	}
 
 	event.Attempt = nextAttempt
+	event.NextAttemptAt = w.now().Add(w.retryBackoff(nextAttempt))
 	return w.writeJSON(ctx, TopicCollectionRequested, event.IdempotencyKey, event)
+}
+
+func (w *Worker) writeDLQ(ctx context.Context, event CollectionRequested, cause error) error {
+	if w.dlqRepo != nil {
+		if _, err := w.dlqRepo.Create(ctx, CreateDLQItemParams{
+			Event:        event,
+			ErrorMessage: cause.Error(),
+			CreatedAt:    w.now(),
+		}); err != nil {
+			return fmt.Errorf("create dlq item: %w", err)
+		}
+	}
+
+	return w.writeJSON(ctx, TopicCollectionDLQ, event.IdempotencyKey, event)
+}
+
+func (w *Worker) waitUntilNextAttempt(ctx context.Context, event CollectionRequested) error {
+	if event.NextAttemptAt.IsZero() {
+		return nil
+	}
+
+	delay := event.NextAttemptAt.Sub(w.now())
+	if delay <= 0 {
+		return nil
+	}
+
+	if err := w.sleep(ctx, delay); err != nil {
+		return fmt.Errorf("wait for next collection attempt: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) retryBackoff(attempt int) time.Duration {
+	if attempt <= 1 {
+		return w.backoffBase
+	}
+
+	backoff := w.backoffBase
+	for i := 1; i < attempt; i++ {
+		backoff *= 2
+	}
+	return backoff
 }
 
 func (w *Worker) writeJSON(ctx context.Context, topic string, key string, payload any) error {
@@ -184,6 +258,18 @@ func (w *Worker) writeJSON(ctx context.Context, topic string, key string, payloa
 
 	w.observeJob(ctx, topic, "success")
 	return nil
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (w *Worker) observeJob(ctx context.Context, topic string, status string) {

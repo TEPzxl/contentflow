@@ -44,10 +44,13 @@ type RateLimitConfig struct {
 }
 
 type KafkaConfig struct {
-	Enabled     bool     `mapstructure:"enabled"`
-	Brokers     []string `mapstructure:"brokers"`
-	GroupID     string   `mapstructure:"group_id"`
-	MaxAttempts int      `mapstructure:"max_attempts"`
+	Enabled                bool          `mapstructure:"enabled"`
+	Brokers                []string      `mapstructure:"brokers"`
+	GroupID                string        `mapstructure:"group_id"`
+	MaxAttempts            int           `mapstructure:"max_attempts"`
+	RetryBackoff           time.Duration `mapstructure:"retry_backoff"`
+	OutboxBatchSize        int           `mapstructure:"outbox_batch_size"`
+	OutboxDispatchInterval time.Duration `mapstructure:"outbox_dispatch_interval"`
 }
 
 type AuthConfig struct {
@@ -160,6 +163,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
 	v.SetDefault("kafka.group_id", "contentflow-collection-worker")
 	v.SetDefault("kafka.max_attempts", 3)
+	v.SetDefault("kafka.retry_backoff", "1m")
+	v.SetDefault("kafka.outbox_batch_size", 100)
+	v.SetDefault("kafka.outbox_dispatch_interval", "1s")
 
 	v.SetDefault("cache.source_list_ttl", "30s")
 	v.SetDefault("cache.article_list_ttl", "30s")

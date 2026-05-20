@@ -200,22 +200,42 @@ func Run() error {
 	var kafkaWriter *collectionjob.KafkaWriter
 	var kafkaReader *collectionjob.KafkaReader
 	var collectionWorker *collectionjob.Worker
+	var outboxDispatcher *collectionjob.OutboxDispatcher
+	registerCollectionJobRoutes := func(api *gin.RouterGroup) {}
 
 	if cfg.Kafka.Enabled {
 		kafkaWriter = collectionjob.NewKafkaWriter(cfg.Kafka.Brokers)
 		kafkaReader = collectionjob.NewKafkaReader(cfg.Kafka.Brokers, cfg.Kafka.GroupID, collectionjob.TopicCollectionRequested)
 
-		jobProducer := collectionjob.NewProducer(kafkaWriter)
+		outboxRepo := collectionjob.NewGormOutboxRepository(db)
+		dlqRepo := collectionjob.NewGormDLQRepository(db)
+		jobProducer := collectionjob.NewOutboxProducer(outboxRepo)
+		outboxOptions := []collectionjob.OutboxDispatcherOption{
+			collectionjob.WithOutboxLogger(log),
+			collectionjob.WithOutboxBatchSize(cfg.Kafka.OutboxBatchSize),
+			collectionjob.WithOutboxBackoff(cfg.Kafka.RetryBackoff),
+			collectionjob.WithOutboxInterval(cfg.Kafka.OutboxDispatchInterval),
+		}
+		if metrics != nil {
+			outboxOptions = append(outboxOptions, collectionjob.WithOutboxObserver(metrics))
+		}
+		outboxDispatcher = collectionjob.NewOutboxDispatcher(outboxRepo, kafkaWriter, outboxOptions...)
 		scheduledCollector = jobProducer
 		asyncCollectionHandler := collector.NewAsyncHandler(jobProducer)
+		dlqHandler := collectionjob.NewDLQHandler(collectionjob.NewDLQService(dlqRepo, kafkaWriter))
 		registerCollectionRoutes = func(api *gin.RouterGroup) {
 			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired, collectRateLimit)
 			collector.RegisterCollectionRunRoutes(api, collectionHandler, authRequired)
 		}
+		registerCollectionJobRoutes = func(api *gin.RouterGroup) {
+			collectionjob.RegisterDLQRoutes(api, dlqHandler, authRequired)
+		}
 
 		workerOptions := []collectionjob.WorkerOption{
 			collectionjob.WithMaxAttempts(cfg.Kafka.MaxAttempts),
+			collectionjob.WithRetryBackoff(cfg.Kafka.RetryBackoff),
 			collectionjob.WithWorkerLogger(log),
+			collectionjob.WithDLQRepository(dlqRepo),
 		}
 		if metrics != nil {
 			workerOptions = append(workerOptions, collectionjob.WithJobObserver(metrics))
@@ -247,6 +267,7 @@ func Run() error {
 			source.RegisterRoutes(api, sourceHandler, authRequired)
 			article.RegisterRoutes(api, articleHandler, authRequired)
 			registerCollectionRoutes(api)
+			registerCollectionJobRoutes(api)
 		}, routerOptions...)
 
 		addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -278,6 +299,15 @@ func Run() error {
 			defer backgroundWG.Done()
 			if err := collectionWorker.Run(backgroundCtx); err != nil {
 				log.Error("collection worker stopped with error", slog.String("error", err.Error()))
+			}
+		}()
+	}
+	if outboxDispatcher != nil {
+		backgroundWG.Add(1)
+		go func() {
+			defer backgroundWG.Done()
+			if err := outboxDispatcher.Run(backgroundCtx); err != nil {
+				log.Error("outbox dispatcher stopped with error", slog.String("error", err.Error()))
 			}
 		}()
 	}
