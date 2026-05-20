@@ -1,77 +1,154 @@
 # contentflow
 
-contentflow 当前主体是 Go 后端内容聚合系统，后续规划使用 React + Next.js + TypeScript + Tailwind CSS 补齐前端应用。
-
-## 目标
-
-- RSS 来源采集
-- 邮件 newsletter 采集
-- 文章去重
-- 用户认证
-- JWT 和刷新令牌
-- Redis 缓存、锁和限流
-- Kafka 异步采集流水线
-- OpenAPI 契约
-- 使用 gomock 和 testcontainers 进行测试
-- 使用 Prometheus、Grafana 和 OpenTelemetry 实现可观测性
-- Docker Compose 和 Kubernetes 部署
+contentflow 是一个内容聚合系统：用户可以管理 RSS / Email 内容源，系统负责采集、去重、入库、查询、收藏、异步任务重试、DLQ 处理，并在文章之上扩展 AI 摘要、相似文章、Daily Digest 和 RAG 搜索。
 
 ## 技术栈
 
-- Go
-- Gin
-- PostgreSQL
-- GORM
-- Redis
-- Kafka
-- Viper
-- slog
-- golang-migrate
-- OpenAPI
-- Docker Compose
-- Kubernetes
-- React
-- Next.js
-- TypeScript
-- Tailwind CSS
+- 后端：Go、Gin、GORM、Viper、slog
+- 数据：PostgreSQL、Redis、Kafka、golang-migrate
+- 前端：React、Next.js、TypeScript、Tailwind CSS
+- 可观测性：Prometheus、Grafana、OpenTelemetry、Jaeger
+- 部署：Docker Compose、Kubernetes、Kustomize、GitHub Actions、GHCR
+- 测试：Go test、gomock、testcontainers、Playwright、k6
 
-## 文档
+## 系统架构
 
-- OpenAPI 契约：`api/openapi.yaml`
-- 本地 Docker Compose：`deployments/docker-compose.yaml`
-- Kubernetes 配置：`deployments/k8s/`
-- 前端应用：`web/`
-- 本地压测脚本：`scripts/load_articles.js`
-- 运行手册：`docs/runbooks/operations.md`
-- 发布检查清单：`docs/releases/release-checklist.md`
-
-## 项目结构
-
-下面是到目录层级的项目结构（仅列出目录，不包含具体文件）：
-
-```contentflow/README.md#L1-200
-contentflow/
-├── cmd/ # 负责程序入口
-│   └── server/ 
-├── configs/ # 配置文件
-├── internal/
-│   ├── app/ # 应用组装与生命周期管理
-│   ├── config/ # 配置
-│   ├── logger/ # 日志记录
-│   ├── database/ # 数据库
-│   ├── cache/ # 缓存
-│   ├── http/ # HTTP服务
-│   │   └── handler/
-│   └── module/
-│       ├── auth/
-│       ├── user/
-│       ├── source/
-│       ├── article/
-│       └── collector/
-├── migrations/
-├── api/ # OpenAPI 契约
-├── deployments/ # 部署配置
-├── scripts/ # 部署脚本
-├── tests/ # 测试
-└── web/ # Next.js 前端应用
+```mermaid
+flowchart LR
+  Web[Next.js Web] --> API[Gin API]
+  API --> PG[(PostgreSQL)]
+  API --> Redis[(Redis)]
+  API --> Kafka[(Kafka)]
+  Scheduler[Scheduler] --> Kafka
+  Kafka --> Worker[Collection Worker]
+  Worker --> RSS[RSS / Email]
+  Worker --> PG
+  Worker --> DLQ[DLQ]
+  AI[AI Summary Worker] --> PG
+  API --> AIAPI[AI APIs]
+  Prom[Prometheus] --> API
+  Grafana[Grafana] --> Prom
+  OTel[OpenTelemetry Collector] --> Jaeger[Jaeger]
 ```
+
+更多图和职责边界见 [docs/architecture.md](docs/architecture.md)。
+
+## 核心功能
+
+- 用户注册、登录、刷新令牌、登出。
+- Source 管理，支持 RSS 和 Email 内容源。
+- 手动采集、定时采集、Kafka 异步采集。
+- Collection Run 查询，采集并发锁与 Redis 限流。
+- Kafka outbox、重试、失败 DLQ、DLQ replay / handled。
+- Article 查询、详情、已读、收藏、缓存。
+- AI 摘要任务、embedding、相似文章、Daily Digest、RAG 搜索。
+- Prometheus metrics、Grafana dashboard、OpenTelemetry tracing。
+- Docker Compose 本地环境与 Kubernetes dev/staging/prod overlays。
+
+## 本地快速启动
+
+启动依赖和应用：
+
+```fish
+docker compose -f deployments/docker-compose.yaml up --build
+```
+
+常用地址：
+
+- 后端 API：`http://localhost:8080`
+- API 文档：`http://localhost:8080/docs`
+- 前端：`http://localhost:3001`
+- Grafana：`http://localhost:3000`
+- Prometheus：`http://localhost:9090`
+- Jaeger：`http://localhost:16686`
+
+只启动基础依赖并在本机跑后端：
+
+```fish
+docker compose -f deployments/docker-compose.yaml up -d postgres redis kafka migrate
+CONTENTFLOW_CONFIG=configs/config.yaml go run ./cmd/server
+```
+
+## 前端启动
+
+```fish
+cd web
+npm install
+set -x NEXT_PUBLIC_CONTENTFLOW_API_BASE_URL http://localhost:8080/api/v1
+npm run dev
+```
+
+默认前端开发地址是 `http://localhost:3000`。Compose 中前端映射到 `http://localhost:3001`，避免和 Grafana 的 `3000` 冲突。
+
+## API 文档
+
+- OpenAPI 源文件：[api/openapi.yaml](api/openapi.yaml)
+- 本地 Redoc：`http://localhost:8080/docs`
+- 校验命令：
+
+```fish
+scripts/validate_openapi.sh
+```
+
+## 测试与 CI
+
+本地聚合校验：
+
+```fish
+scripts/ci.sh all
+scripts/ci.sh web-test
+```
+
+常用分项：
+
+```fish
+go test ./...
+npm --prefix web run typecheck
+npm --prefix web run lint
+npm --prefix web run build
+scripts/validate_k8s.sh
+scripts/validate_ci.sh
+```
+
+CI 覆盖后端测试、覆盖率、OpenAPI、Kubernetes 渲染校验、前端 audit/typecheck/lint/test/build 和 Docker 镜像发布 workflow 校验。
+
+## 部署方式
+
+- 本地：`deployments/docker-compose.yaml`
+- 后端镜像：`deployments/Dockerfile`
+- 前端镜像：`web/Dockerfile`
+- Kubernetes base：`deployments/k8s/base`
+- Kubernetes overlays：`deployments/k8s/overlays/dev`、`staging`、`prod`
+- 发布清单：[docs/releases/release-checklist.md](docs/releases/release-checklist.md)
+
+Tag `v*` 会触发 `.github/workflows/release-images.yaml`，发布后端和前端镜像到 GHCR。
+
+## 可观测性
+
+- Metrics：`/metrics`
+- Alert rules：`deployments/prometheus/rules/contentflow-alerts.yml`
+- Grafana dashboards：`deployments/grafana/dashboards/`
+- Tracing：OpenTelemetry Collector -> Jaeger
+- 运行手册：[docs/runbooks/operations.md](docs/runbooks/operations.md)
+- 排障记录：[docs/troubleshooting.md](docs/troubleshooting.md)
+
+## 压测
+
+k6 脚本：
+
+```fish
+BASE_URL=http://localhost:8080 ACCESS_TOKEN=<token> SOURCE_ID=1 ARTICLE_ID=1 k6 run scripts/load_articles.js
+```
+
+压测方法和结果模板见 [docs/performance/load-testing.md](docs/performance/load-testing.md)。
+
+## 项目亮点
+
+- 用模块化边界拆分 auth、source、collector、article、collectionjob、ai，降低业务耦合。
+- Kafka + outbox + retry + DLQ 覆盖异步采集可靠性。
+- Redis 同时承载缓存、限流和采集分布式锁。
+- AI 功能以可替换 Assistant 接口实现，测试不依赖外部模型调用。
+- 前后端通过 OpenAPI 契约协作，CI 中持续校验契约和 K8s 渲染。
+- Compose、Kubernetes、可观测性和发布清单构成完整交付闭环。
+
+简历描述参考：[docs/resume.md](docs/resume.md)。
