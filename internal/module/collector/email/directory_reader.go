@@ -2,16 +2,20 @@ package email
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
 	"net/mail"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
 type DirectoryMailboxReader struct{}
@@ -65,7 +69,11 @@ func readEmailFile(path string) (Message, error) {
 	}
 	defer file.Close()
 
-	msg, err := mail.ReadMessage(file)
+	return readEmail(file)
+}
+
+func readEmail(reader io.Reader) (Message, error) {
+	msg, err := mail.ReadMessage(reader)
 	if err != nil {
 		return Message{}, fmt.Errorf("parse email message: %w", err)
 	}
@@ -84,7 +92,7 @@ func readEmailFile(path string) (Message, error) {
 
 	return Message{
 		MessageID: strings.TrimSpace(msg.Header.Get("Message-ID")),
-		Subject:   strings.TrimSpace(msg.Header.Get("Subject")),
+		Subject:   strings.TrimSpace(decodeHeader(msg.Header.Get("Subject"))),
 		From:      strings.TrimSpace(msg.Header.Get("From")),
 		To:        parseAddressList(msg.Header.Get("To")),
 		Body:      strings.TrimSpace(body),
@@ -96,11 +104,14 @@ func readMessageBody(header mail.Header, body io.Reader) (string, error) {
 	contentType := header.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
-		data, readErr := io.ReadAll(body)
+		content, readErr := readDecodedBody(body, header.Get("Content-Transfer-Encoding"))
 		if readErr != nil {
-			return "", fmt.Errorf("read email body: %w", readErr)
+			return "", readErr
 		}
-		return string(data), nil
+		if strings.EqualFold(mediaType, "text/html") {
+			return htmlToText(content), nil
+		}
+		return content, nil
 	}
 
 	boundary := params["boundary"]
@@ -119,22 +130,82 @@ func readMessageBody(header mail.Header, body io.Reader) (string, error) {
 			return "", fmt.Errorf("read multipart email: %w", err)
 		}
 
-		data, err := io.ReadAll(part)
+		content, err := readDecodedBody(part, part.Header.Get("Content-Transfer-Encoding"))
 		if err != nil {
-			return "", fmt.Errorf("read email part: %w", err)
+			return "", err
 		}
 
 		partMediaType, _, _ := mime.ParseMediaType(part.Header.Get("Content-Type"))
 		partMediaType = strings.ToLower(strings.TrimSpace(partMediaType))
 		if partMediaType == "text/plain" {
-			return string(data), nil
+			return content, nil
 		}
-		if firstText == "" && strings.HasPrefix(partMediaType, "text/") {
-			firstText = string(data)
+		if firstText == "" && partMediaType == "text/html" {
+			firstText = htmlToText(content)
+		} else if firstText == "" && strings.HasPrefix(partMediaType, "text/") {
+			firstText = content
 		}
 	}
 
 	return firstText, nil
+}
+
+func readDecodedBody(body io.Reader, transferEncoding string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(transferEncoding)) {
+	case "quoted-printable":
+		data, err := io.ReadAll(quotedprintable.NewReader(body))
+		if err != nil {
+			return "", fmt.Errorf("decode quoted-printable email body: %w", err)
+		}
+		return string(data), nil
+	case "base64":
+		data, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, body))
+		if err != nil {
+			return "", fmt.Errorf("decode base64 email body: %w", err)
+		}
+		return string(data), nil
+	default:
+		data, err := io.ReadAll(body)
+		if err != nil {
+			return "", fmt.Errorf("read email body: %w", err)
+		}
+		return string(data), nil
+	}
+}
+
+func decodeHeader(value string) string {
+	decoded, err := new(mime.WordDecoder).DecodeHeader(value)
+	if err != nil {
+		return value
+	}
+	return decoded
+}
+
+func htmlToText(value string) string {
+	doc, err := html.Parse(strings.NewReader(value))
+	if err != nil {
+		return normalizeText(value)
+	}
+
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.TextNode {
+			text := strings.TrimSpace(n.Data)
+			if text != "" {
+				if b.Len() > 0 {
+					b.WriteByte(' ')
+				}
+				b.WriteString(text)
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(doc)
+
+	return normalizeText(b.String())
 }
 
 func parseAddressList(value string) []string {

@@ -20,13 +20,22 @@ var (
 )
 
 type Config struct {
-	Provider       string `json:"provider"`
-	Mailbox        string `json:"mailbox"`
-	FromFilter     string `json:"from_filter"`
-	RecipientAlias string `json:"recipient_alias"`
+	Provider       string   `json:"provider"`
+	Mailbox        string   `json:"mailbox"`
+	Host           string   `json:"host"`
+	Port           int      `json:"port"`
+	Username       string   `json:"username"`
+	Password       string   `json:"password"`
+	PasswordEnv    string   `json:"password_env"`
+	UseTLS         *bool    `json:"use_tls"`
+	FromFilter     string   `json:"from_filter"`
+	RecipientAlias string   `json:"recipient_alias"`
+	SeenMessageIDs []string `json:"seen_message_ids"`
+	LastSeenUID    int      `json:"last_seen_uid"`
 }
 
 type Message struct {
+	UID       int
 	MessageID string
 	Subject   string
 	From      string
@@ -81,7 +90,15 @@ func (c *Collector) Collect(ctx context.Context, src *source.Source) ([]collecto
 	}
 
 	items := make([]collector.CollectedItem, 0, len(messages))
+	seen := seenMessageIDSet(cfg.SeenMessageIDs)
+	newMessageIDs := make([]string, 0, len(messages))
+	lastSeenUID := cfg.LastSeenUID
 	for _, msg := range messages {
+		messageID := strings.TrimSpace(msg.MessageID)
+		if messageID != "" && seen[messageID] {
+			continue
+		}
+
 		if !matchesFilters(msg, cfg) {
 			continue
 		}
@@ -92,6 +109,23 @@ func (c *Collector) Collect(ctx context.Context, src *source.Source) ([]collecto
 		}
 
 		items = append(items, item)
+		if messageID != "" {
+			newMessageIDs = append(newMessageIDs, messageID)
+		}
+		if msg.UID > lastSeenUID {
+			lastSeenUID = msg.UID
+		}
+	}
+
+	if len(newMessageIDs) > 0 {
+		if err := updateSeenMessageIDs(src, cfg.SeenMessageIDs, newMessageIDs); err != nil {
+			return nil, err
+		}
+	}
+	if lastSeenUID > cfg.LastSeenUID {
+		if err := updateLastSeenUID(src, lastSeenUID); err != nil {
+			return nil, err
+		}
 	}
 
 	return items, nil
@@ -109,10 +143,86 @@ func parseConfig(src *source.Source) (Config, error) {
 
 	cfg.Provider = strings.TrimSpace(strings.ToLower(cfg.Provider))
 	cfg.Mailbox = strings.TrimSpace(cfg.Mailbox)
+	cfg.Host = strings.TrimSpace(cfg.Host)
+	cfg.Username = strings.TrimSpace(cfg.Username)
+	cfg.PasswordEnv = strings.TrimSpace(cfg.PasswordEnv)
 	cfg.FromFilter = strings.TrimSpace(cfg.FromFilter)
 	cfg.RecipientAlias = strings.TrimSpace(cfg.RecipientAlias)
+	cfg.SeenMessageIDs = normalizeSeenMessageIDs(cfg.SeenMessageIDs)
+	if cfg.LastSeenUID < 0 {
+		cfg.LastSeenUID = 0
+	}
 
 	return cfg, nil
+}
+
+func seenMessageIDSet(ids []string) map[string]bool {
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			seen[id] = true
+		}
+	}
+	return seen
+}
+
+func normalizeSeenMessageIDs(ids []string) []string {
+	normalized := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		normalized = append(normalized, id)
+	}
+	return normalized
+}
+
+func updateSeenMessageIDs(src *source.Source, existing []string, newIDs []string) error {
+	if src == nil {
+		return nil
+	}
+
+	config := map[string]any{}
+	if len(src.ConfigJSON) > 0 {
+		if err := json.Unmarshal(src.ConfigJSON, &config); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidEmailConfig, err)
+		}
+	}
+
+	merged := normalizeSeenMessageIDs(append(existing, newIDs...))
+	config["seen_message_ids"] = merged
+
+	data, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidEmailConfig, err)
+	}
+	src.ConfigJSON = data
+	return nil
+}
+
+func updateLastSeenUID(src *source.Source, uid int) error {
+	if src == nil || uid <= 0 {
+		return nil
+	}
+
+	config := map[string]any{}
+	if len(src.ConfigJSON) > 0 {
+		if err := json.Unmarshal(src.ConfigJSON, &config); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidEmailConfig, err)
+		}
+	}
+
+	config["last_seen_uid"] = uid
+	data, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidEmailConfig, err)
+	}
+	src.ConfigJSON = data
+	return nil
 }
 
 func matchesFilters(msg Message, cfg Config) bool {
@@ -210,12 +320,14 @@ func (emptyMailboxReader) Read(ctx context.Context, cfg Config) ([]Message, erro
 
 type ConfiguredMailboxReader struct {
 	directoryReader MailboxReader
+	imapReader      MailboxReader
 	emptyReader     MailboxReader
 }
 
 func NewConfiguredMailboxReader() *ConfiguredMailboxReader {
 	return &ConfiguredMailboxReader{
 		directoryReader: NewDirectoryMailboxReader(),
+		imapReader:      NewIMAPMailboxReader(),
 		emptyReader:     emptyMailboxReader{},
 	}
 }
@@ -226,6 +338,8 @@ func (r *ConfiguredMailboxReader) Read(ctx context.Context, cfg Config) ([]Messa
 		return r.emptyReader.Read(ctx, cfg)
 	case "directory":
 		return r.directoryReader.Read(ctx, cfg)
+	case "imap":
+		return r.imapReader.Read(ctx, cfg)
 	default:
 		return nil, ErrInvalidEmailConfig
 	}

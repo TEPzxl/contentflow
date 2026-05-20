@@ -557,17 +557,43 @@ components:
           properties:
             provider:
               type: string
-              enum: [directory, empty]
-              description: Email reader provider. Use directory to read RFC822 .eml files from mailbox.
+              enum: [directory, imap, empty]
+              description: Email reader provider. Use directory to read RFC822 .eml files from mailbox, or imap to read from an IMAP server.
             mailbox:
               type: string
-              description: Mailbox name or directory path, depending on provider.
+              description: Mailbox name or directory path, depending on provider. Defaults to INBOX for IMAP.
+            host:
+              type: string
+              description: IMAP host when provider is imap.
+            port:
+              type: integer
+              description: IMAP port. Defaults to 993 when use_tls is true, otherwise 143.
+            username:
+              type: string
+              description: IMAP username when provider is imap.
+            password:
+              type: string
+              description: IMAP password when provider is imap. Prefer secret-backed config in production.
+            password_env:
+              type: string
+              description: Environment variable name that contains the IMAP password. Prefer this over password.
+            use_tls:
+              type: boolean
+              description: Whether to use TLS for IMAP. Defaults to true.
             from_filter:
               type: string
               description: Email sender substring filter.
             recipient_alias:
               type: string
               description: Email recipient alias substring filter.
+            seen_message_ids:
+              type: array
+              description: Internal cursor maintained by the collector to skip already processed email messages.
+              items:
+                type: string
+            last_seen_uid:
+              type: integer
+              description: Internal IMAP UID cursor maintained by the collector to fetch only newer messages.
     UpdateSourceRequest:
       type: object
       properties:
@@ -580,7 +606,7 @@ components:
           type: boolean
         config:
           type: object
-          description: Source-specific configuration. Email sources support provider, mailbox, from_filter, and recipient_alias.
+          description: Source-specific configuration. Email sources support provider, mailbox, IMAP connection fields, from_filter, recipient_alias, and collector-maintained cursors.
           additionalProperties: true
     Source:
       type: object

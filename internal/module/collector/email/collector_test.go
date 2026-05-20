@@ -1,10 +1,14 @@
 package email
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +174,39 @@ func TestCollector_Collect(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "skips seen message ids and updates source cursor",
+			src: sampleEmailSource(`{
+				"provider": "empty",
+				"mailbox": "Newsletters",
+				"from_filter": "news@example.com",
+				"seen_message_ids": ["<old@example.com>"]
+			}`),
+			reader: &fakeMailboxReader{
+				messages: []Message{
+					{
+						MessageID: "<old@example.com>",
+						Subject:   "Old",
+						From:      "news@example.com",
+						Body:      "old body",
+					},
+					{
+						MessageID: "<new@example.com>",
+						Subject:   "New",
+						From:      "news@example.com",
+						Body:      "new body",
+					},
+				},
+			},
+			want: func(t *testing.T, items []collector.CollectedItem) {
+				t.Helper()
+
+				if len(items) != 1 {
+					t.Fatalf("len(items) = %d, want 1", len(items))
+				}
+				assertStringPtr(t, "ExternalID", items[0].ExternalID, "<new@example.com>")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -192,6 +229,95 @@ func TestCollector_Collect(t *testing.T) {
 				tt.want(t, items)
 			}
 		})
+	}
+}
+
+func TestCollector_Collect_persistsSeenMessageIDs(t *testing.T) {
+	src := sampleEmailSource(`{
+		"provider": "empty",
+		"mailbox": "Newsletters",
+		"custom_field": "kept",
+		"seen_message_ids": ["<old@example.com>"]
+	}`)
+	reader := &fakeMailboxReader{
+		messages: []Message{
+			{
+				MessageID: "<old@example.com>",
+				Subject:   "Old",
+				From:      "news@example.com",
+				Body:      "old body",
+			},
+			{
+				MessageID: "<new@example.com>",
+				Subject:   "New",
+				From:      "news@example.com",
+				Body:      "new body",
+			},
+		},
+	}
+	c := NewCollector(WithMailboxReader(reader))
+
+	_, err := c.Collect(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(src.ConfigJSON, &config); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	if config["custom_field"] != "kept" {
+		t.Fatalf("custom_field = %v, want kept", config["custom_field"])
+	}
+
+	seen, ok := config["seen_message_ids"].([]any)
+	if !ok {
+		t.Fatalf("seen_message_ids = %T, want []any", config["seen_message_ids"])
+	}
+	if len(seen) != 2 {
+		t.Fatalf("len(seen_message_ids) = %d, want 2", len(seen))
+	}
+	if seen[0] != "<old@example.com>" || seen[1] != "<new@example.com>" {
+		t.Fatalf("seen_message_ids = %#v", seen)
+	}
+}
+
+func TestCollector_Collect_persistsLastSeenUID(t *testing.T) {
+	src := sampleEmailSource(`{
+		"provider": "imap",
+		"last_seen_uid": 10
+	}`)
+	reader := &fakeMailboxReader{
+		messages: []Message{
+			{
+				UID:       11,
+				MessageID: "<uid-11@example.com>",
+				Subject:   "UID 11",
+				From:      "news@example.com",
+				Body:      "uid 11 body",
+			},
+			{
+				UID:       13,
+				MessageID: "<uid-13@example.com>",
+				Subject:   "UID 13",
+				From:      "news@example.com",
+				Body:      "uid 13 body",
+			},
+		},
+	}
+	c := NewCollector(WithMailboxReader(reader))
+
+	_, err := c.Collect(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(src.ConfigJSON, &config); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	if config["last_seen_uid"] != float64(13) {
+		t.Fatalf("last_seen_uid = %v, want 13", config["last_seen_uid"])
 	}
 }
 
@@ -316,12 +442,301 @@ func TestDirectoryMailboxReader_Read_prefersPlainTextPart(t *testing.T) {
 	}
 }
 
+func TestDirectoryMailboxReader_Read_decodesTransferEncodingAndEncodedSubject(t *testing.T) {
+	dir := t.TempDir()
+	writeTestEmail(t, filepath.Join(dir, "encoded.eml"), ""+
+		"Message-ID: <encoded@example.com>\r\n"+
+		"Subject: =?UTF-8?Q?Weekly_Go_News?=\r\n"+
+		"From: news@example.com\r\n"+
+		"To: reader@example.com\r\n"+
+		"Content-Type: text/plain; charset=utf-8\r\n"+
+		"Content-Transfer-Encoding: quoted-printable\r\n"+
+		"\r\n"+
+		"Hello=20from=20quoted-printable.\r\n")
+
+	reader := NewDirectoryMailboxReader()
+
+	messages, err := reader.Read(context.Background(), Config{
+		Provider: "directory",
+		Mailbox:  dir,
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if messages[0].Subject != "Weekly Go News" {
+		t.Fatalf("Subject = %q", messages[0].Subject)
+	}
+	if messages[0].Body != "Hello from quoted-printable." {
+		t.Fatalf("Body = %q", messages[0].Body)
+	}
+}
+
+func TestDirectoryMailboxReader_Read_convertsHTMLBodyWhenPlainTextMissing(t *testing.T) {
+	dir := t.TempDir()
+	writeTestEmail(t, filepath.Join(dir, "html.eml"), ""+
+		"Message-ID: <html@example.com>\r\n"+
+		"Subject: HTML News\r\n"+
+		"From: news@example.com\r\n"+
+		"To: reader@example.com\r\n"+
+		"Content-Type: text/html; charset=utf-8\r\n"+
+		"\r\n"+
+		"<html><body><h1>Hello</h1><p>from <strong>HTML</strong></p></body></html>\r\n")
+
+	reader := NewDirectoryMailboxReader()
+
+	messages, err := reader.Read(context.Background(), Config{
+		Provider: "directory",
+		Mailbox:  dir,
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if messages[0].Body != "Hello from HTML" {
+		t.Fatalf("Body = %q", messages[0].Body)
+	}
+}
+
+func TestIMAPMailboxReader_Read(t *testing.T) {
+	server := newFakeIMAPServer(t, []string{
+		"* OK fake imap ready\r\n",
+	})
+	server.expect(t, "A001 LOGIN \"reader@example.com\" \"secret\"", "A001 OK logged in\r\n")
+	server.expect(t, "A002 SELECT \"Newsletters\"", "* 2 EXISTS\r\nA002 OK selected\r\n")
+	server.expect(t, "A003 UID SEARCH UID 1:*", "* SEARCH 101\r\nA003 OK search completed\r\n")
+	server.expect(t, "A004 UID FETCH 101 RFC822", "* 1 FETCH (UID 101 RFC822 {159}\r\n"+
+		"Message-ID: <imap@example.com>\r\n"+
+		"Subject: IMAP News\r\n"+
+		"From: news@example.com\r\n"+
+		"To: reader@example.com\r\n"+
+		"Date: Wed, 13 May 2026 12:00:00 +0000\r\n"+
+		"\r\n"+
+		"Hello from IMAP.\r\n"+
+		")\r\n"+
+		"A004 OK fetch completed\r\n")
+	server.expect(t, "A005 LOGOUT", "* BYE logging out\r\nA005 OK logout completed\r\n")
+
+	reader := NewIMAPMailboxReader(WithIMAPDialer(func(ctx context.Context, network string, address string) (net.Conn, error) {
+		return net.Dial(network, server.address)
+	}))
+
+	messages, err := reader.Read(context.Background(), Config{
+		Provider: "imap",
+		Host:     "imap.example.com",
+		Port:     143,
+		Username: "reader@example.com",
+		Password: "secret",
+		Mailbox:  "Newsletters",
+		UseTLS:   boolPtr(false),
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if messages[0].MessageID != "<imap@example.com>" {
+		t.Fatalf("MessageID = %q", messages[0].MessageID)
+	}
+	if messages[0].UID != 101 {
+		t.Fatalf("UID = %d, want 101", messages[0].UID)
+	}
+	if messages[0].Subject != "IMAP News" {
+		t.Fatalf("Subject = %q", messages[0].Subject)
+	}
+	if messages[0].Body != "Hello from IMAP." {
+		t.Fatalf("Body = %q", messages[0].Body)
+	}
+}
+
+func TestIMAPMailboxReader_Read_searchesAfterLastSeenUID(t *testing.T) {
+	server := newFakeIMAPServer(t, []string{
+		"* OK fake imap ready\r\n",
+	})
+	server.expect(t, "A001 LOGIN \"reader@example.com\" \"secret\"", "A001 OK logged in\r\n")
+	server.expect(t, "A002 SELECT \"INBOX\"", "* 0 EXISTS\r\nA002 OK selected\r\n")
+	server.expect(t, "A003 UID SEARCH UID 43:*", "* SEARCH\r\nA003 OK search completed\r\n")
+	server.expect(t, "A004 LOGOUT", "* BYE logging out\r\nA004 OK logout completed\r\n")
+
+	reader := NewIMAPMailboxReader(WithIMAPDialer(func(ctx context.Context, network string, address string) (net.Conn, error) {
+		return net.Dial(network, server.address)
+	}))
+
+	messages, err := reader.Read(context.Background(), Config{
+		Provider:    "imap",
+		Host:        "imap.example.com",
+		Port:        143,
+		Username:    "reader@example.com",
+		Password:    "secret",
+		Mailbox:     "INBOX",
+		UseTLS:      boolPtr(false),
+		LastSeenUID: 42,
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("len(messages) = %d, want 0", len(messages))
+	}
+}
+
+func TestIMAPMailboxReader_Read_usesPasswordEnv(t *testing.T) {
+	t.Setenv("CONTENTFLOW_TEST_IMAP_PASSWORD", "secret-from-env")
+
+	server := newFakeIMAPServer(t, []string{
+		"* OK fake imap ready\r\n",
+	})
+	server.expect(t, "A001 LOGIN \"reader@example.com\" \"secret-from-env\"", "A001 OK logged in\r\n")
+	server.expect(t, "A002 SELECT \"INBOX\"", "* 0 EXISTS\r\nA002 OK selected\r\n")
+	server.expect(t, "A003 UID SEARCH UID 1:*", "* SEARCH\r\nA003 OK search completed\r\n")
+	server.expect(t, "A004 LOGOUT", "* BYE logging out\r\nA004 OK logout completed\r\n")
+
+	reader := NewIMAPMailboxReader(WithIMAPDialer(func(ctx context.Context, network string, address string) (net.Conn, error) {
+		return net.Dial(network, server.address)
+	}))
+
+	_, err := reader.Read(context.Background(), Config{
+		Provider:    "imap",
+		Host:        "imap.example.com",
+		Port:        143,
+		Username:    "reader@example.com",
+		PasswordEnv: "CONTENTFLOW_TEST_IMAP_PASSWORD",
+		Mailbox:     "INBOX",
+		UseTLS:      boolPtr(false),
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+}
+
+func TestConfiguredMailboxReader_Read_supportsIMAPProvider(t *testing.T) {
+	server := newFakeIMAPServer(t, []string{
+		"* OK fake imap ready\r\n",
+	})
+	server.expect(t, "A001 LOGIN \"reader@example.com\" \"secret\"", "A001 OK logged in\r\n")
+	server.expect(t, "A002 SELECT \"INBOX\"", "* 1 EXISTS\r\nA002 OK selected\r\n")
+	server.expect(t, "A003 UID SEARCH UID 1:*", "* SEARCH 201\r\nA003 OK search completed\r\n")
+	server.expect(t, "A004 UID FETCH 201 RFC822", "* 1 FETCH (UID 201 RFC822 {121}\r\n"+
+		"Message-ID: <configured@example.com>\r\n"+
+		"Subject: Configured IMAP\r\n"+
+		"From: news@example.com\r\n"+
+		"To: reader@example.com\r\n"+
+		"\r\n"+
+		"Body.\r\n"+
+		")\r\n"+
+		"A004 OK fetch completed\r\n")
+	server.expect(t, "A005 LOGOUT", "* BYE logging out\r\nA005 OK logout completed\r\n")
+
+	reader := &ConfiguredMailboxReader{
+		directoryReader: NewDirectoryMailboxReader(),
+		imapReader: NewIMAPMailboxReader(WithIMAPDialer(func(ctx context.Context, network string, address string) (net.Conn, error) {
+			return net.Dial(network, server.address)
+		})),
+		emptyReader: emptyMailboxReader{},
+	}
+
+	messages, err := reader.Read(context.Background(), Config{
+		Provider: "imap",
+		Host:     "imap.example.com",
+		Port:     143,
+		Username: "reader@example.com",
+		Password: "secret",
+		Mailbox:  "INBOX",
+		UseTLS:   boolPtr(false),
+	})
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if messages[0].Subject != "Configured IMAP" {
+		t.Fatalf("Subject = %q", messages[0].Subject)
+	}
+}
+
 func writeTestEmail(t *testing.T, path string, content string) {
 	t.Helper()
 
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write test email: %v", err)
 	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+type fakeIMAPServer struct {
+	address string
+	steps   chan fakeIMAPStep
+	done    chan struct{}
+}
+
+type fakeIMAPStep struct {
+	command  string
+	response string
+}
+
+func newFakeIMAPServer(t *testing.T, greetings []string) *fakeIMAPServer {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen fake imap: %v", err)
+	}
+
+	server := &fakeIMAPServer{
+		address: listener.Addr().String(),
+		steps:   make(chan fakeIMAPStep, 16),
+		done:    make(chan struct{}),
+	}
+
+	go func() {
+		defer close(server.done)
+		defer listener.Close()
+
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for _, greeting := range greetings {
+			_, _ = conn.Write([]byte(greeting))
+		}
+
+		reader := bufio.NewReader(conn)
+		for step := range server.steps {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			line = strings.TrimRight(line, "\r\n")
+			if line != step.command {
+				t.Errorf("imap command = %q, want %q", line, step.command)
+				return
+			}
+			_, _ = conn.Write([]byte(step.response))
+		}
+	}()
+
+	t.Cleanup(func() {
+		close(server.steps)
+		<-server.done
+	})
+
+	return server
+}
+
+func (s *fakeIMAPServer) expect(t *testing.T, command string, response string) {
+	t.Helper()
+	s.steps <- fakeIMAPStep{command: command, response: response}
 }
 
 type fakeMailboxReader struct {
