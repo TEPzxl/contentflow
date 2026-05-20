@@ -20,6 +20,7 @@ func OpenAPIYAML(c *gin.Context) {
 }
 
 func Redoc(c *gin.Context) {
+	c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://cdn.redoc.ly; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(redocHTML))
 }
 

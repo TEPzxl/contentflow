@@ -9,8 +9,11 @@ resources:
   - configmap.yaml
   - secret.yaml
   - backend-deployment.yaml
+  - frontend-deployment.yaml
   - backend-service.yaml
+  - frontend-service.yaml
   - backend-ingress.yaml
+  - frontend-ingress.yaml
   - backend-hpa.yaml
   - worker-deployment.yaml
   - scheduler-deployment.yaml

@@ -1,0 +1,46 @@
+groups:
+  - name: contentflow.slo
+    rules:
+      - alert: ContentflowHighHTTPErrorRate
+        expr: |
+          sum(rate(contentflow_http_requests_total{status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(contentflow_http_requests_total[5m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Contentflow HTTP 5xx rate is above 5%
+          runbook_url: docs/runbooks/operations.md#http-5xx-rate-is-high
+
+      - alert: ContentflowCollectorFailureRateHigh
+        expr: |
+          sum(increase(contentflow_collection_runs_total{status="failed"}[15m]))
+          /
+          clamp_min(sum(increase(contentflow_collection_runs_total[15m])), 1)
+          > 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Content collection failure rate is high
+          runbook_url: docs/runbooks/operations.md#collection-failure-rate-is-high
+
+      - alert: ContentflowKafkaDLQWrites
+        expr: sum(increase(contentflow_kafka_jobs_total{topic="collection.dlq",status="success"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Collection jobs are being written to DLQ
+          runbook_url: docs/runbooks/operations.md#kafka-dlq-has-new-items
+
+      - alert: ContentflowDatabaseLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(contentflow_db_query_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Database p95 latency is above 500ms
+          runbook_url: docs/runbooks/operations.md#database-latency-or-outage

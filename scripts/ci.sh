@@ -71,6 +71,7 @@ case "${cmd}" in
       docker compose -f deployments/docker-compose.yaml build \
       --build-arg GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \
       backend
+    docker compose -f deployments/docker-compose.yaml build frontend
     ;;
   all)
     "$0" tidy-check

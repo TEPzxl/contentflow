@@ -43,6 +43,7 @@ func NewRouter(log *slog.Logger, db *gorm.DB, redisClient *redis.Client, registe
 	r := gin.New()
 
 	r.Use(gin.Recovery())
+	r.Use(middleware.SecurityHeaders())
 	r.Use(middleware.RequestID())
 	if options.tracingServiceName != "" {
 		r.Use(otelgin.Middleware(options.tracingServiceName))

@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: contentflow-prod
+
+resources:
+  - ../../base
+  - external-secret.yaml
+
+images:
+  - name: contentflow
+    newName: ghcr.io/your-org/contentflow
+    newTag: stable
+  - name: contentflow-web
+    newName: ghcr.io/your-org/contentflow-web
+    newTag: stable
+
+patches:
+  - path: delete-local-secret.yaml
+  - target:
+      kind: Ingress
+      name: contentflow-backend
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-prod
+      - op: replace
+        path: /spec/rules/0/host
+        value: api.contentflow.example.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: api.contentflow.example.com
+  - target:
+      kind: Ingress
+      name: contentflow-frontend
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-prod
+      - op: replace
+        path: /spec/rules/0/host
+        value: contentflow.example.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: contentflow.example.com

@@ -27,6 +27,19 @@ services:
       otel-collector:
         condition: service_started
 
+  frontend:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_CONTENTFLOW_API_BASE_URL: http://localhost:8080/api/v1
+    container_name: contentflow_frontend
+    ports:
+      - "3001:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
   postgres:
     image: postgres:17-alpine
     container_name: contentflow_postgres
@@ -103,6 +116,15 @@ services:
       - "4318:4318"
     volumes:
       - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.3.0
+    container_name: contentflow_jaeger
+    ports:
+      - "16686:16686"
+      - "4319:4317"
 
   prometheus:
     image: prom/prometheus:v3.0.1
@@ -111,6 +133,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

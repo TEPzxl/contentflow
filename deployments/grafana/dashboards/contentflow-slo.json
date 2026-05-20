@@ -1,0 +1,117 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "1 - (sum(rate(contentflow_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(contentflow_http_requests_total[5m])), 1))",
+          "legendFormat": "availability",
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP Availability",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(contentflow_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "p95 {{path}}",
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP p95 Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "sum(increase(contentflow_kafka_jobs_total[15m])) by (topic, status)",
+          "legendFormat": "{{topic}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Kafka Job Events",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(increase(contentflow_collection_runs_total{status=\"failed\"}[15m])) by (source_type)",
+          "legendFormat": "{{source_type}} failed",
+          "refId": "A"
+        }
+      ],
+      "title": "Collection Failures",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 40,
+  "tags": [
+    "contentflow",
+    "slo"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Contentflow SLO",
+  "uid": "contentflow-slo",
+  "version": 1
+}
