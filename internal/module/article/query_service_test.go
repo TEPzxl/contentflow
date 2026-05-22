@@ -19,6 +19,7 @@ func TestArticleService_ListArticles(t *testing.T) {
 		req       article.ListArticlesRequest
 		cache     *fakeArticleListCache
 		mock      func(ctx context.Context, repo *articlemocks.MockRepository)
+		assert    func(t *testing.T, resp *article.ListArticlesResponse)
 		wantErr   error
 		wantTotal int64
 		wantSets  int
@@ -45,6 +46,15 @@ func TestArticleService_ListArticles(t *testing.T) {
 						Offset:   0,
 					}).
 					Return([]article.ArticleWithState{sampleArticleWithState(now)}, int64(1), nil)
+			},
+			assert: func(t *testing.T, resp *article.ListArticlesResponse) {
+				t.Helper()
+				if len(resp.Articles) != 1 {
+					t.Fatalf("len(Articles) = %d, want 1", len(resp.Articles))
+				}
+				if resp.Articles[0].Content != "" {
+					t.Fatalf("list article Content = %q, want empty list payload", resp.Articles[0].Content)
+				}
 			},
 			wantTotal: 1,
 			wantSets:  1,
@@ -109,6 +119,9 @@ func TestArticleService_ListArticles(t *testing.T) {
 			if tt.cache.sets != tt.wantSets {
 				t.Fatalf("cache sets = %d, want %d", tt.cache.sets, tt.wantSets)
 			}
+			if tt.assert != nil {
+				tt.assert(t, resp)
+			}
 		})
 	}
 }
@@ -132,6 +145,9 @@ func TestArticleService_GetArticle(t *testing.T) {
 	}
 	if resp.Article.ID != 1 || resp.Article.IsRead != true {
 		t.Fatalf("Article = %#v", resp.Article)
+	}
+	if resp.Article.Content != "content" {
+		t.Fatalf("Article.Content = %q, want detail content", resp.Article.Content)
 	}
 }
 

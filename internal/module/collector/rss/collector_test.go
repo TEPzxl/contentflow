@@ -289,6 +289,25 @@ func TestHTTPFetcher_Fetch(t *testing.T) {
 	}
 }
 
+func TestHTTPFetcher_FetchRejectsUnsafeURLBeforeNetwork(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			t.Fatalf("RoundTrip called for unsafe URL %s", req.URL.String())
+			return nil, nil
+		}),
+	}
+	fetcher := NewHTTPFetcher(client)
+
+	body, err := fetcher.Fetch(context.Background(), "http://127.0.0.1/feed.xml")
+
+	if err == nil {
+		t.Fatal("Fetch() expected unsafe URL error, got nil")
+	}
+	if body != nil {
+		t.Fatal("Fetch() body must be nil on unsafe URL")
+	}
+}
+
 type fakeFetcher struct {
 	body *trackingReadCloser
 	err  error

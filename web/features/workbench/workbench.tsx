@@ -42,6 +42,7 @@ export function Workbench() {
   );
 
   function logout() {
+    void api.logout().catch(() => undefined);
     clearSession();
     setSession(null);
     setSources([]);

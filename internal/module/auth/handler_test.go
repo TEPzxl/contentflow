@@ -245,6 +245,42 @@ func TestAuthHandler_Login(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthHandler_LoginSetsHttpOnlyRefreshCookie(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := authmocks.NewMockService(ctrl)
+	service.EXPECT().
+		Login(gomock.Any(), auth.LoginRequest{
+			Email:    "tep@example.com",
+			Password: "12345678",
+		}).
+		Return(&auth.LoginResponse{
+			User:         auth.AuthUser{ID: 1, Email: "tep@example.com", DisplayName: "tep"},
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+			TokenType:    "Bearer",
+			ExpiresIn:    900,
+		}, nil)
+
+	router := newAuthTestRouter(service, 1)
+	w := performJSONRequest(router, http.MethodPost, "/api/v1/auth/login", `{"email":"tep@example.com","password":"12345678"}`)
+
+	assertStatus(t, w, http.StatusOK)
+	cookie := findCookie(w.Result().Cookies(), "contentflow_refresh_token")
+	if cookie == nil {
+		t.Fatal("refresh cookie missing")
+	}
+	if !cookie.HttpOnly {
+		t.Fatal("refresh cookie must be HttpOnly")
+	}
+	if cookie.Value != "refresh-token" {
+		t.Fatalf("refresh cookie value = %q, want refresh-token", cookie.Value)
+	}
+	assertNoRefreshTokenInData(t, w)
+}
+
 func TestAuthHandler_Refresh(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -319,6 +355,37 @@ func TestAuthHandler_Refresh(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthHandler_RefreshUsesHttpOnlyCookie(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := authmocks.NewMockService(ctrl)
+	service.EXPECT().
+		Refresh(gomock.Any(), auth.RefreshRequest{RefreshToken: "old-refresh-token"}).
+		Return(&auth.RefreshResponse{
+			User:         auth.AuthUser{ID: 1, Email: "tep@example.com", DisplayName: "tep"},
+			AccessToken:  "new-access-token",
+			RefreshToken: "new-refresh-token",
+			TokenType:    "Bearer",
+			ExpiresIn:    900,
+		}, nil)
+
+	router := newAuthTestRouter(service, 1)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: "contentflow_refresh_token", Value: "old-refresh-token"})
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assertStatus(t, w, http.StatusOK)
+	cookie := findCookie(w.Result().Cookies(), "contentflow_refresh_token")
+	if cookie == nil || cookie.Value != "new-refresh-token" || !cookie.HttpOnly {
+		t.Fatalf("refresh cookie = %#v, want rotated HttpOnly cookie", cookie)
+	}
+	assertNoRefreshTokenInData(t, w)
+}
+
 func TestAuthHandler_Logout(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -383,6 +450,33 @@ func TestAuthHandler_Logout(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthHandler_LogoutUsesAndClearsHttpOnlyCookie(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service := authmocks.NewMockService(ctrl)
+	service.EXPECT().
+		Logout(gomock.Any(), auth.LogoutRequest{RefreshToken: "refresh-token"}).
+		Return(nil)
+
+	router := newAuthTestRouter(service, 1)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: "contentflow_refresh_token", Value: "refresh-token"})
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assertStatus(t, w, http.StatusOK)
+	cookie := findCookie(w.Result().Cookies(), "contentflow_refresh_token")
+	if cookie == nil {
+		t.Fatal("cleared refresh cookie missing")
+	}
+	if cookie.Value != "" || cookie.MaxAge >= 0 {
+		t.Fatalf("cleared refresh cookie = %#v", cookie)
+	}
+}
+
 func TestAuthHandler_Me(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -438,6 +532,27 @@ func TestAuthHandler_Me(t *testing.T) {
 			assertStatus(t, w, tt.wantStatus)
 			assertErrorCode(t, w, tt.wantCode)
 		})
+	}
+}
+
+func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	return nil
+}
+
+func assertNoRefreshTokenInData(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+	got := decodeJSONBody(t, w.Body)
+	data, ok := got["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("response data missing: %v", got)
+	}
+	if _, ok := data["refresh_token"]; ok {
+		t.Fatalf("response leaks refresh_token: %v", data)
 	}
 }
 func assertStatus(t *testing.T, w *httptest.ResponseRecorder, wantStatus int) {

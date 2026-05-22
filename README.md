@@ -141,14 +141,3 @@ BASE_URL=http://localhost:8080 ACCESS_TOKEN=<token> SOURCE_ID=1 ARTICLE_ID=1 k6 
 ```
 
 压测方法和结果模板见 [docs/performance/load-testing.md](docs/performance/load-testing.md)。
-
-## 项目亮点
-
-- 用模块化边界拆分 auth、source、collector、article、collectionjob、ai，降低业务耦合。
-- Kafka + outbox + retry + DLQ 覆盖异步采集可靠性。
-- Redis 同时承载缓存、限流和采集分布式锁。
-- AI 功能以可替换 Assistant 接口实现，测试不依赖外部模型调用。
-- 前后端通过 OpenAPI 契约协作，CI 中持续校验契约和 K8s 渲染。
-- Compose、Kubernetes、可观测性和发布清单构成完整交付闭环。
-
-简历描述参考：[docs/resume.md](docs/resume.md)。

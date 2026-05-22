@@ -81,7 +81,7 @@ func (r *GormRepository) CreateIfNotExists(ctx context.Context, article *Article
 }
 
 func (r *GormRepository) ListByUser(ctx context.Context, params ListArticlesParams) ([]ArticleWithState, int64, error) {
-	query := r.articleQuery(ctx, params.UserID).
+	query := r.articleQuery(ctx, params.UserID, false).
 		Where("src.deleted_at IS NULL")
 
 	query = applyArticleFilters(query, params)
@@ -107,7 +107,7 @@ func (r *GormRepository) ListByUser(ctx context.Context, params ListArticlesPara
 
 func (r *GormRepository) FindByUserAndID(ctx context.Context, userID, articleID int64) (ArticleWithState, error) {
 	var row ArticleWithState
-	err := r.articleQuery(ctx, userID).
+	err := r.articleQuery(ctx, userID, true).
 		Where("a.id = ?", articleID).
 		Where("src.deleted_at IS NULL").
 		First(&row).
@@ -175,28 +175,33 @@ func (r *GormRepository) UpsertState(ctx context.Context, params UpsertArticleSt
 	return r.FindByUserAndID(ctx, params.UserID, params.ArticleID)
 }
 
-func (r *GormRepository) articleQuery(ctx context.Context, userID int64) *gorm.DB {
+func (r *GormRepository) articleQuery(ctx context.Context, userID int64, includeContent bool) *gorm.DB {
+	contentSelect := "'' AS content"
+	if includeContent {
+		contentSelect = "a.content"
+	}
+
 	return r.db.WithContext(ctx).
 		Table("articles AS a").
-		Select(`
-			a.id,
-			a.source_id,
-			a.source_type,
+		Select(fmt.Sprintf(`
+				a.id,
+				a.source_id,
+				a.source_type,
 			a.external_id,
 			a.title,
 			a.url,
-			a.original_url,
-			a.author,
-			a.summary,
-			a.content,
-			a.published_at,
-			a.created_at,
-			a.updated_at,
+				a.original_url,
+				a.author,
+				a.summary,
+				%s,
+				a.published_at,
+				a.created_at,
+				a.updated_at,
 			COALESCE(st.is_read, false) AS is_read,
 			COALESCE(st.is_saved, false) AS is_saved,
-			st.read_at,
-			st.saved_at
-		`).
+				st.read_at,
+				st.saved_at
+			`, contentSelect)).
 		Joins("JOIN sources AS src ON src.id = a.source_id AND src.user_id = ?", userID).
 		Joins("LEFT JOIN article_states AS st ON st.article_id = a.id AND st.user_id = ?", userID)
 }
@@ -207,8 +212,11 @@ func applyArticleFilters(query *gorm.DB, params ListArticlesParams) *gorm.DB {
 	}
 
 	if params.Query != "" {
-		like := "%" + strings.TrimSpace(params.Query) + "%"
-		query = query.Where("(a.title ILIKE ? OR a.summary ILIKE ? OR a.content ILIKE ?)", like, like, like)
+		term := strings.TrimSpace(params.Query)
+		query = query.Where(
+			"to_tsvector('simple', coalesce(a.title, '') || ' ' || coalesce(a.summary, '') || ' ' || coalesce(a.content, '')) @@ plainto_tsquery('simple', ?)",
+			term,
+		)
 	}
 
 	if params.IsRead != nil {

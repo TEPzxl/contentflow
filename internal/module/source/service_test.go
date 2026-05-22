@@ -1,6 +1,7 @@
 package source_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ func TestSourceService_CreateSource(t *testing.T) {
 		name    string
 		req     source.CreateSourceRequest
 		mock    func(t *testing.T, ctx context.Context, repo *sourcemocks.MockRepository)
+		assert  func(t *testing.T, resp *source.CreateSourceResponse)
 		wantErr error
 	}{
 		{
@@ -105,6 +107,31 @@ func TestSourceService_CreateSource(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "create email source redacts secret config in response",
+			req: source.CreateSourceRequest{
+				UserID: 100,
+				Name:   "Inbox",
+				Type:   "email",
+				Config: json.RawMessage(`{"provider":"imap","username":"reader","password":"mail-secret","nested":{"api_key":"api-secret"}}`),
+			},
+			mock: func(t *testing.T, ctx context.Context, repo *sourcemocks.MockRepository) {
+				repo.EXPECT().
+					Create(ctx, gomock.AssignableToTypeOf(&source.Source{})).
+					DoAndReturn(func(_ context.Context, s *source.Source) error {
+						if !bytes.Contains(s.ConfigJSON, []byte("mail-secret")) {
+							t.Fatalf("stored ConfigJSON = %s, want raw secret preserved for collector", string(s.ConfigJSON))
+						}
+						s.ID = 3
+						return nil
+					})
+			},
+			assert: func(t *testing.T, resp *source.CreateSourceResponse) {
+				t.Helper()
+				assertRedactedConfig(t, resp.Source.Config)
+			},
+			wantErr: nil,
+		},
+		{
 			name: "empty name",
 			req: source.CreateSourceRequest{
 				UserID: 100,
@@ -150,6 +177,19 @@ func TestSourceService_CreateSource(t *testing.T) {
 				Name:   "Go Blog",
 				Type:   source.TypeRSS,
 				URL:    strPtr("not-a-url"),
+				Config: json.RawMessage(`{}`),
+			},
+			mock: func(t *testing.T, ctx context.Context, repo *sourcemocks.MockRepository) {
+			},
+			wantErr: source.ErrInvalidSourceURL,
+		},
+		{
+			name: "rss source rejects private address url",
+			req: source.CreateSourceRequest{
+				UserID: 100,
+				Name:   "Metadata",
+				Type:   source.TypeRSS,
+				URL:    strPtr("http://169.254.169.254/latest/meta-data"),
 				Config: json.RawMessage(`{}`),
 			},
 			mock: func(t *testing.T, ctx context.Context, repo *sourcemocks.MockRepository) {
@@ -224,6 +264,9 @@ func TestSourceService_CreateSource(t *testing.T) {
 			if resp.Source.ID == 0 {
 				t.Fatal("CreateSource() source id should not be zero")
 			}
+			if tt.assert != nil {
+				tt.assert(t, resp)
+			}
 		})
 	}
 }
@@ -235,6 +278,7 @@ func TestSourceService_ListSources(t *testing.T) {
 		name    string
 		req     source.ListSourcesRequest
 		mock    func(ctx context.Context, repo *sourcemocks.MockRepository)
+		assert  func(t *testing.T, resp *source.ListSourcesResponse)
 		wantErr error
 	}{
 		{
@@ -271,6 +315,32 @@ func TestSourceService_ListSources(t *testing.T) {
 						Offset: 20,
 					}).
 					Return([]source.Source{*model}, int64(1), nil)
+			},
+			wantErr: nil,
+		},
+		{
+			name: "list redacts secret config",
+			req: source.ListSourcesRequest{
+				UserID: 100,
+			},
+			mock: func(ctx context.Context, repo *sourcemocks.MockRepository) {
+				model := *sampleSourceModel()
+				model.ConfigJSON = datatypes.JSON([]byte(`{"provider":"imap","password":"mail-secret","token":"feed-token"}`))
+				repo.EXPECT().
+					ListByUserID(ctx, source.ListParams{
+						UserID: 100,
+						Type:   "",
+						Limit:  20,
+						Offset: 0,
+					}).
+					Return([]source.Source{model}, int64(1), nil)
+			},
+			assert: func(t *testing.T, resp *source.ListSourcesResponse) {
+				t.Helper()
+				if len(resp.Sources) != 1 {
+					t.Fatalf("len(Sources) = %d, want 1", len(resp.Sources))
+				}
+				assertRedactedConfig(t, resp.Sources[0].Config)
 			},
 			wantErr: nil,
 		},
@@ -352,17 +422,23 @@ func TestSourceService_ListSources(t *testing.T) {
 			if resp == nil {
 				t.Fatal("ListSources() response is nil")
 			}
+			if tt.assert != nil {
+				tt.assert(t, resp)
+			}
 		})
 	}
 }
 
 func TestSourceService_ListSourcesCache(t *testing.T) {
 	model := sampleSourceDTO()
+	rawSecretModel := model
+	rawSecretModel.Config = json.RawMessage(`{"password":"mail-secret"}`)
 
 	tests := []struct {
 		name      string
 		cache     *fakeListCache
 		mock      func(ctx context.Context, repo *sourcemocks.MockRepository)
+		assert    func(t *testing.T, resp *source.ListSourcesResponse)
 		wantSets  int
 		wantTotal int64
 	}{
@@ -377,6 +453,25 @@ func TestSourceService_ListSourcesCache(t *testing.T) {
 				},
 			},
 			mock: func(ctx context.Context, repo *sourcemocks.MockRepository) {
+			},
+			wantSets:  0,
+			wantTotal: 1,
+		},
+		{
+			name: "cache hit redacts legacy secret config",
+			cache: &fakeListCache{
+				resp: &source.ListSourcesResponse{
+					Sources: []source.SourceDTO{rawSecretModel},
+					Total:   1,
+					Limit:   20,
+					Offset:  0,
+				},
+			},
+			mock: func(ctx context.Context, repo *sourcemocks.MockRepository) {
+			},
+			assert: func(t *testing.T, resp *source.ListSourcesResponse) {
+				t.Helper()
+				assertRedactedConfig(t, resp.Sources[0].Config)
 			},
 			wantSets:  0,
 			wantTotal: 1,
@@ -419,6 +514,9 @@ func TestSourceService_ListSourcesCache(t *testing.T) {
 			}
 			if tt.cache.sets != tt.wantSets {
 				t.Fatalf("cache sets = %d, want %d", tt.cache.sets, tt.wantSets)
+			}
+			if tt.assert != nil {
+				tt.assert(t, resp)
 			}
 		})
 	}
@@ -612,6 +710,16 @@ func boolPtr(v bool) *bool {
 
 func fixedTime() time.Time {
 	return time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
+}
+
+func assertRedactedConfig(t *testing.T, config json.RawMessage) {
+	t.Helper()
+	if bytes.Contains(config, []byte("mail-secret")) || bytes.Contains(config, []byte("api-secret")) || bytes.Contains(config, []byte("feed-token")) {
+		t.Fatalf("config leaks secret: %s", string(config))
+	}
+	if !bytes.Contains(config, []byte("[REDACTED]")) {
+		t.Fatalf("config = %s, want redaction marker", string(config))
+	}
 }
 
 func sampleSourceModel() *source.Source {

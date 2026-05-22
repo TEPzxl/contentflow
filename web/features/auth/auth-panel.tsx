@@ -62,7 +62,7 @@ export function AuthPanel({ onAuthenticated }: { onAuthenticated: (session: Sess
               type="password"
               value={password}
               required
-              minLength={6}
+              minLength={8}
               onChange={(event) => setPassword(event.target.value)}
             />
           </label>

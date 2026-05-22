@@ -554,6 +554,26 @@ func TestIMAPMailboxReader_Read(t *testing.T) {
 	}
 }
 
+func TestIMAPMailboxReader_ReadRejectsUnsafeHostBeforeDial(t *testing.T) {
+	reader := NewIMAPMailboxReader(WithIMAPDialer(func(ctx context.Context, network string, address string) (net.Conn, error) {
+		t.Fatalf("dialer called for unsafe address %s", address)
+		return nil, nil
+	}))
+
+	_, err := reader.Read(context.Background(), Config{
+		Provider: "imap",
+		Host:     "127.0.0.1",
+		Port:     143,
+		Username: "reader@example.com",
+		Password: "secret",
+		Mailbox:  "INBOX",
+		UseTLS:   boolPtr(false),
+	})
+	if err == nil {
+		t.Fatal("Read() expected unsafe host error, got nil")
+	}
+}
+
 func TestIMAPMailboxReader_Read_searchesAfterLastSeenUID(t *testing.T) {
 	server := newFakeIMAPServer(t, []string{
 		"* OK fake imap ready\r\n",

@@ -126,6 +126,9 @@ func Load(path string) (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
+	if err := validateSecurity(cfg); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
@@ -184,4 +187,26 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.refresh_token_ttl", "168h")
 	v.SetDefault("auth.jwt_secret", "default secret")
 	v.SetDefault("auth.jwt_issuer", "contentflow")
+}
+
+func validateSecurity(cfg Config) error {
+	env := strings.ToLower(strings.TrimSpace(cfg.App.Env))
+	if env == "" || env == "dev" || env == "development" || env == "test" {
+		return nil
+	}
+
+	secret := strings.TrimSpace(cfg.Auth.JWTSecret)
+	if len(secret) < 32 || isWeakJWTSecret(secret) {
+		return fmt.Errorf("weak jwt secret is not allowed outside development")
+	}
+	return nil
+}
+
+func isWeakJWTSecret(secret string) bool {
+	switch strings.ToLower(strings.TrimSpace(secret)) {
+	case "", "default secret", "replace-me", "change-me", "change-me-before-production", "dev-only-insecure-jwt-secret-change-me":
+		return true
+	default:
+		return false
+	}
 }

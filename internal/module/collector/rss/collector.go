@@ -14,6 +14,7 @@ import (
 	"github.com/mmcdole/gofeed"
 	"github.com/tepzxl/contentflow/internal/module/collector"
 	"github.com/tepzxl/contentflow/internal/module/source"
+	"github.com/tepzxl/contentflow/internal/netguard"
 )
 
 var (
@@ -126,7 +127,9 @@ type HTTPFetcher struct {
 func NewHTTPFetcher(client *http.Client) *HTTPFetcher {
 	if client == nil {
 		client = &http.Client{
-			Timeout: defaultHTTPTimeout,
+			Timeout:       defaultHTTPTimeout,
+			Transport:     publicHTTPTransport(),
+			CheckRedirect: safeFeedRedirect,
 		}
 	}
 
@@ -137,6 +140,10 @@ func NewHTTPFetcher(client *http.Client) *HTTPFetcher {
 }
 
 func (f *HTTPFetcher) Fetch(ctx context.Context, feedURL string) (io.ReadCloser, error) {
+	if err := netguard.ValidateHTTPURL(feedURL); err != nil {
+		return nil, fmt.Errorf("unsafe feed url: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create feed request: %w", err)
@@ -156,6 +163,26 @@ func (f *HTTPFetcher) Fetch(ctx context.Context, feedURL string) (io.ReadCloser,
 	}
 
 	return resp.Body, nil
+}
+
+func publicHTTPTransport() http.RoundTripper {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	clone := transport.Clone()
+	clone.DialContext = netguard.DialContext
+	return clone
+}
+
+func safeFeedRedirect(req *http.Request, via []*http.Request) error {
+	if err := netguard.ValidateHTTPURL(req.URL.String()); err != nil {
+		return err
+	}
+	if len(via) >= 10 {
+		return http.ErrUseLastResponse
+	}
+	return nil
 }
 
 type GofeedParser struct {

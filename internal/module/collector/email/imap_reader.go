@@ -6,14 +6,18 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/tepzxl/contentflow/internal/netguard"
 )
 
 type IMAPDialer func(ctx context.Context, network string, address string) (net.Conn, error)
+
+const defaultMaxMessageSize = 10 << 20
 
 type IMAPMailboxReader struct {
 	dialer IMAPDialer
@@ -40,8 +44,7 @@ func NewIMAPMailboxReader(opts ...IMAPOption) *IMAPMailboxReader {
 }
 
 func defaultIMAPDialer(ctx context.Context, network string, address string) (net.Conn, error) {
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	return dialer.DialContext(ctx, network, address)
+	return netguard.DialContext(ctx, network, address)
 }
 
 func (r *IMAPMailboxReader) Read(ctx context.Context, cfg Config) ([]Message, error) {
@@ -137,6 +140,9 @@ func (r *IMAPMailboxReader) dial(ctx context.Context, cfg Config) (net.Conn, err
 	}
 
 	address := net.JoinHostPort(cfg.Host, strconv.Itoa(port))
+	if err := netguard.ValidateHost(cfg.Host); err != nil {
+		return nil, err
+	}
 	if !useTLS(cfg) {
 		conn, err := r.dialer(ctx, "tcp", address)
 		if err != nil {
@@ -145,13 +151,14 @@ func (r *IMAPMailboxReader) dial(ctx context.Context, cfg Config) (net.Conn, err
 		return conn, nil
 	}
 
-	dialer := tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: 10 * time.Second},
-		Config:    &tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12},
-	}
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	rawConn, err := r.dialer(ctx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("dial imaps: %w", err)
+	}
+	conn := tls.Client(rawConn, &tls.Config{ServerName: cfg.Host, MinVersion: tls.VersionTLS12})
+	if err := conn.HandshakeContext(ctx); err != nil {
+		_ = rawConn.Close()
+		return nil, fmt.Errorf("handshake imaps: %w", err)
 	}
 	return conn, nil
 }
@@ -261,8 +268,11 @@ func (c *imapClient) fetchUIDRFC822(id string) (Message, error) {
 			if err != nil {
 				return Message{}, err
 			}
+			if size > defaultMaxMessageSize {
+				return Message{}, fmt.Errorf("imap literal too large: %d", size)
+			}
 			raw = make([]byte, size)
-			if _, err := c.reader.Read(raw); err != nil {
+			if _, err := io.ReadFull(c.reader, raw); err != nil {
 				return Message{}, fmt.Errorf("read imap literal: %w", err)
 			}
 			continue

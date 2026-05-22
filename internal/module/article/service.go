@@ -93,6 +93,7 @@ func (s *Service) ListArticles(ctx context.Context, req ListArticlesRequest) (*L
 
 	if s.listCache != nil {
 		if cached, ok, err := s.listCache.GetList(ctx, normalizedReq); err == nil && ok {
+			stripArticleListContent(cached)
 			return cached, nil
 		}
 	}
@@ -112,7 +113,7 @@ func (s *Service) ListArticles(ctx context.Context, req ListArticlesRequest) (*L
 
 	articles := make([]ArticleDTO, 0, len(rows))
 	for _, row := range rows {
-		articles = append(articles, toArticleDTO(row))
+		articles = append(articles, toArticleListDTO(row))
 	}
 
 	resp := &ListArticlesResponse{
@@ -249,5 +250,20 @@ func toArticleDTO(row ArticleWithState) ArticleDTO {
 		IsSaved:     row.IsSaved,
 		ReadAt:      row.ReadAt,
 		SavedAt:     row.SavedAt,
+	}
+}
+
+func toArticleListDTO(row ArticleWithState) ArticleDTO {
+	dto := toArticleDTO(row)
+	dto.Content = ""
+	return dto
+}
+
+func stripArticleListContent(resp *ListArticlesResponse) {
+	if resp == nil {
+		return
+	}
+	for i := range resp.Articles {
+		resp.Articles[i].Content = ""
 	}
 }

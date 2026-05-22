@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tepzxl/contentflow/internal/netguard"
 	"gorm.io/datatypes"
 )
 
@@ -143,6 +144,7 @@ func (s *SourceService) ListSources(ctx context.Context, req ListSourcesRequest)
 
 	if s.listCache != nil {
 		if cached, ok, err := s.listCache.GetList(ctx, normalizedReq); err == nil && ok {
+			redactSourceListResponse(cached)
 			return cached, nil
 		}
 	}
@@ -305,6 +307,9 @@ func normalizeURL(raw *string) (*string, error) {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, ErrInvalidSourceURL
 	}
+	if err := netguard.ValidateHTTPURL(value); err != nil {
+		return nil, ErrInvalidSourceURL
+	}
 
 	return &value, nil
 }
@@ -347,12 +352,71 @@ func toDTO(src *Source) SourceDTO {
 		Name:             src.Name,
 		Type:             src.Type,
 		URL:              src.URL,
-		Config:           json.RawMessage(src.ConfigJSON),
+		Config:           redactConfig(json.RawMessage(src.ConfigJSON)),
 		IsActive:         src.IsActive,
 		LastFetchedAt:    src.LastFetchedAt,
 		LastFetchStatus:  src.LastFetchStatus,
 		LastFetchMessage: src.LastFetchMessage,
 		CreatedAt:        src.CreatedAt,
 		UpdatedAt:        src.UpdatedAt,
+	}
+}
+
+func redactConfig(config json.RawMessage) json.RawMessage {
+	if len(config) == 0 {
+		return json.RawMessage(`{}`)
+	}
+
+	var value any
+	if err := json.Unmarshal(config, &value); err != nil {
+		return json.RawMessage(`{}`)
+	}
+
+	redacted, err := json.Marshal(redactConfigValue(value))
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return json.RawMessage(redacted)
+}
+
+func redactSourceListResponse(resp *ListSourcesResponse) {
+	if resp == nil {
+		return
+	}
+	for i := range resp.Sources {
+		resp.Sources[i].Config = redactConfig(resp.Sources[i].Config)
+	}
+}
+
+func redactConfigValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		redacted := make(map[string]any, len(typed))
+		for key, item := range typed {
+			if isSensitiveConfigKey(key) {
+				redacted[key] = "[REDACTED]"
+				continue
+			}
+			redacted[key] = redactConfigValue(item)
+		}
+		return redacted
+	case []any:
+		redacted := make([]any, 0, len(typed))
+		for _, item := range typed {
+			redacted = append(redacted, redactConfigValue(item))
+		}
+		return redacted
+	default:
+		return value
+	}
+}
+
+func isSensitiveConfigKey(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	switch normalized {
+	case "password", "passwd", "secret", "token", "access_token", "refresh_token", "api_key", "apikey", "client_secret", "private_key", "authorization", "bearer_token":
+		return true
+	default:
+		return false
 	}
 }

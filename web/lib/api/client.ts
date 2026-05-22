@@ -41,6 +41,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const response = await fetch(`${apiBaseURL}${path}`, {
     method: options.method ?? "GET",
     headers,
+    credentials: "include",
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
   });
 
@@ -65,7 +66,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 async function refreshSession() {
   const session = readSession();
-  if (!session?.refreshToken) {
+  if (!session?.accessToken) {
     return false;
   }
 
@@ -73,8 +74,7 @@ async function refreshSession() {
     const data = await request<AuthTokens>("/auth/refresh", {
       method: "POST",
       auth: false,
-      retryOnUnauthorized: false,
-      body: { refresh_token: session.refreshToken }
+      retryOnUnauthorized: false
     });
     saveSession(data);
     return true;
@@ -106,11 +106,10 @@ export const api = {
       body: payload
     });
   },
-  logout(refreshToken: string) {
+  logout() {
     return request<{ message: string }>("/auth/logout", {
       method: "POST",
-      auth: false,
-      body: { refresh_token: refreshToken }
+      auth: false
     });
   },
   me() {

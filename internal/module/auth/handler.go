@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tepzxl/contentflow/internal/http/requestctx"
@@ -12,6 +13,9 @@ import (
 type Handler struct {
 	service Service
 }
+
+const refreshCookieName = "contentflow_refresh_token"
+const refreshCookieMaxAge = 7 * 24 * 60 * 60
 
 func NewHandler(service Service) *Handler {
 	return &Handler{
@@ -42,7 +46,7 @@ type LoginHTTPReq struct {
 
 type loginHTTPResp struct {
 	AccessToken  string           `json:"access_token"`
-	RefreshToken string           `json:"refresh_token"`
+	RefreshToken string           `json:"refresh_token,omitempty"`
 	TokenType    string           `json:"token_type"`
 	ExpiresIn    int64            `json:"expires_in"`
 	User         authUserHTTPResp `json:"user"`
@@ -54,7 +58,7 @@ type RefreshHTTPReq struct {
 
 type refreshHTTPResp struct {
 	AccessToken  string           `json:"access_token"`
-	RefreshToken string           `json:"refresh_token"`
+	RefreshToken string           `json:"refresh_token,omitempty"`
 	TokenType    string           `json:"token_type"`
 	ExpiresIn    int64            `json:"expires_in"`
 	User         authUserHTTPResp `json:"user"`
@@ -104,42 +108,47 @@ func (h *Handler) Login(c *gin.Context) {
 		h.handleAuthError(c, err)
 		return
 	}
+	setRefreshCookie(c, result.RefreshToken)
 	response.OK(c, toLoginHTTPResp(result))
 }
 
 func (h *Handler) Refresh(c *gin.Context) {
-	var req RefreshHTTPReq
-
-	if err := c.ShouldBindJSON(&req); err != nil {
+	refreshToken, ok := refreshTokenFromRequest(c, func(req *RefreshHTTPReq) string {
+		return req.RefreshToken
+	})
+	if !ok {
 		response.Error(c, http.StatusBadRequest, "invalid_request", "invalid refresh request")
 		return
 	}
 
 	result, err := h.service.Refresh(c.Request.Context(), RefreshRequest{
-		RefreshToken: req.RefreshToken,
+		RefreshToken: refreshToken,
 	})
 	if err != nil {
 		h.handleAuthError(c, err)
 		return
 	}
+	setRefreshCookie(c, result.RefreshToken)
 	response.OK(c, toRefreshTokenHTTPResp(result))
 }
 
 func (h *Handler) Logout(c *gin.Context) {
-	var req LogoutHTTPReq
-
-	if err := c.ShouldBindJSON(&req); err != nil {
+	refreshToken, ok := refreshTokenFromRequest(c, func(req *LogoutHTTPReq) string {
+		return req.RefreshToken
+	})
+	if !ok {
 		response.Error(c, http.StatusBadRequest, "invalid_request", "invalid logout request")
 		return
 	}
 
 	err := h.service.Logout(c.Request.Context(), LogoutRequest{
-		RefreshToken: req.RefreshToken,
+		RefreshToken: refreshToken,
 	})
 	if err != nil {
 		h.handleAuthError(c, err)
 		return
 	}
+	clearRefreshCookie(c)
 	response.OK(c, gin.H{
 		"message": "logged out",
 	})
@@ -179,6 +188,54 @@ func (h *Handler) handleAuthError(c *gin.Context, err error) {
 	}
 }
 
+func refreshTokenFromRequest[T RefreshHTTPReq | LogoutHTTPReq](c *gin.Context, pick func(*T) string) (string, bool) {
+	var req T
+	if c.Request.Body != nil && c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			return "", false
+		}
+	}
+
+	token := strings.TrimSpace(pick(&req))
+	if token == "" {
+		if cookieToken, err := c.Cookie(refreshCookieName); err == nil {
+			token = strings.TrimSpace(cookieToken)
+		}
+	}
+	return token, token != ""
+}
+
+func setRefreshCookie(c *gin.Context, token string) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    token,
+		Path:     "/api/v1/auth",
+		MaxAge:   refreshCookieMaxAge,
+		HttpOnly: true,
+		Secure:   requestIsHTTPS(c),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func clearRefreshCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    "",
+		Path:     "/api/v1/auth",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   requestIsHTTPS(c),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func requestIsHTTPS(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+}
+
 func toAuthUserHTTPResp(u AuthUser) authUserHTTPResp {
 	return authUserHTTPResp{
 		ID:          u.ID,
@@ -195,21 +252,19 @@ func toRegisterHTTPResp(resp *RegisterResponse) registerHTTPResp {
 
 func toLoginHTTPResp(resp *LoginResponse) loginHTTPResp {
 	return loginHTTPResp{
-		User:         toAuthUserHTTPResp(resp.User),
-		AccessToken:  resp.AccessToken,
-		RefreshToken: resp.RefreshToken,
-		TokenType:    resp.TokenType,
-		ExpiresIn:    resp.ExpiresIn,
+		User:        toAuthUserHTTPResp(resp.User),
+		AccessToken: resp.AccessToken,
+		TokenType:   resp.TokenType,
+		ExpiresIn:   resp.ExpiresIn,
 	}
 }
 
 func toRefreshTokenHTTPResp(resp *RefreshResponse) refreshHTTPResp {
 	return refreshHTTPResp{
-		User:         toAuthUserHTTPResp(resp.User),
-		AccessToken:  resp.AccessToken,
-		RefreshToken: resp.RefreshToken,
-		TokenType:    resp.TokenType,
-		ExpiresIn:    resp.ExpiresIn,
+		User:        toAuthUserHTTPResp(resp.User),
+		AccessToken: resp.AccessToken,
+		TokenType:   resp.TokenType,
+		ExpiresIn:   resp.ExpiresIn,
 	}
 }
 
