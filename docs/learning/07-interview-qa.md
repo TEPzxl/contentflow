@@ -112,7 +112,7 @@ Kafka 开启时，API 写 outbox 返回 queued。dispatcher 发送 Kafka。worke
 - Email IMAP 在真实邮箱上的运行结果。
 - Docker Compose 在当前机器上的实际启动结果。
 - Kubernetes 在真实集群中的部署结果。
-- 当前 `scripts/ci.sh` 的具体行为，因为该文件有未提交改动，本轮未读取其内容。
+- 当前没有亲自运行过的 CI 分支结果；可以说明脚本覆盖范围，但不要把未运行分支说成已通过。
 
 ## 10. 最终面试安全总结
 

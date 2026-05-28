@@ -74,7 +74,7 @@
 - Learning horizon: 不绑定日期的分阶段路线。
 - Prioritized modules: 从零开始，按入口到核心业务流的顺序学习。
 - Resume bullets provided: 不需要。你已说明简历已完成。
-- Current worktree note: 发现已有未提交改动 `internal/module/collector/rss_integration_test.go` 和 `scripts/ci.sh`。本次没有读取或修改这两个文件的内容。
+- Current worktree note: 历史备注只反映当时状态；继续维护项目时以当前 `git status`、最新测试输出和已提交代码为准。
 
 ## Initial Source Facts Verified
 
