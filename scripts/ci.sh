@@ -67,7 +67,7 @@ case "${cmd}" in
     scripts/smoke_api.sh
     ;;
   integration)
-    go test -count=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
+    go test -count=1 -p=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
     ;;
   docker-build)
     GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \

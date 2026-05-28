@@ -7,10 +7,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
+	"io"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,9 +33,8 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 	db, cleanup := setupCollectorIntegrationDB(t)
 	defer cleanup()
 
-	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-		_, _ = fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
+	feedURL := "https://example.com/feed.xml"
+	feed := `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
     <title>Example Feed</title>
@@ -56,9 +55,7 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
       <pubDate>Wed, 13 May 2026 11:00:00 GMT</pubDate>
     </item>
   </channel>
-</rss>`)
-	}))
-	defer feedServer.Close()
+</rss>`
 
 	ctx := context.Background()
 	userID := createCollectorIntegrationUser(t, db, "rss-e2e@example.com")
@@ -67,7 +64,7 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 		UserID:           userID,
 		Name:             "Example Feed",
 		Type:             source.TypeRSS,
-		URL:              &feedServer.URL,
+		URL:              &feedURL,
 		ConfigJSON:       datatypes.JSON([]byte(`{}`)),
 		IsActive:         true,
 		LastFetchStatus:  "",
@@ -79,7 +76,9 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 
-	registry, err := collector.NewRegistry(rsscollector.NewCollector())
+	registry, err := collector.NewRegistry(rsscollector.NewCollector(
+		rsscollector.WithFetcher(staticFeedFetcher{body: feed}),
+	))
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -128,6 +127,14 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 	if gotSource.LastFetchStatus != collector.RunStatusSuccess {
 		t.Fatalf("LastFetchStatus = %q, want %q", gotSource.LastFetchStatus, collector.RunStatusSuccess)
 	}
+}
+
+type staticFeedFetcher struct {
+	body string
+}
+
+func (f staticFeedFetcher) Fetch(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader(f.body)), nil
 }
 
 func setupCollectorIntegrationDB(t *testing.T) (*gorm.DB, func()) {
