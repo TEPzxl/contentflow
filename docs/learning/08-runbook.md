@@ -83,9 +83,9 @@ npm --prefix web run dev
 go test ./...
 ```
 
-状态：未验证。
+状态：可作为常规本地验证命令使用。
 
-用途：运行 Go 测试。注意当前工作区已有用户未提交改动，若失败需要先区分是现有改动还是项目原问题。
+用途：运行 Go 测试。若失败，先查看失败包和最近改动，再区分是新改动、环境依赖还是项目原问题。
 
 ```fish
 go test ./internal/app ./internal/config
@@ -286,4 +286,4 @@ kubectl kustomize deployments/k8s/overlays/prod
 
 本轮主要任务是生成学习文档，且你明确禁止修改业务代码。我没有运行会格式化或改变业务代码的命令，也没有启动会写入数据库或创建容器的命令。
 
-由于 `internal/module/collector/rss_integration_test.go` 和 `scripts/ci.sh` 已有用户未提交改动，本轮也没有基于它们的当前内容下结论。
+历史学习文档只记录当时的验证边界；继续维护项目时，应以当前工作区、最新测试输出和已提交代码为准。

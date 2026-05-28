@@ -86,7 +86,7 @@ Kafka 开启时，API 写 outbox 返回 queued。dispatcher 发送 Kafka。worke
 | 这是生产系统吗？ | 这是具备生产形态组件的完整项目，但我不会声称它已经承载真实生产流量。 |
 | Kafka 是否 exactly-once？ | 不是。它用 outbox、retry、DLQ、source lock 和数据库唯一索引降低失败与重复风险。 |
 | AI 是否用了 OpenAI 或其他外部模型？ | 默认没有。代码通过 Assistant 接口预留扩展点，默认 provider 是本地算法。 |
-| DLQ 管理是否安全？ | 当前看到的是登录态保护，没有看到 admin 权限和 user scope 过滤，这是一个后续需要加强的点。 |
+| DLQ 管理是否安全？ | 当前有登录态保护和 user scope 过滤，但没有 admin/role 权限模型；如果要做后台运维，还需要补角色权限。 |
 | K8s 是否已经生产验证？ | manifests 和 overlay 存在，也有渲染校验脚本；本轮没有真实集群运行证据。 |
 
 ## 7. 不确定时的安全回答

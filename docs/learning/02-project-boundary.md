@@ -38,7 +38,7 @@
 | Observability | 中等偏强 | `/metrics`、HTTP metrics、GORM callbacks、collection/kafka metrics、OpenTelemetry tracing |
 | Tests | 中等偏强 | 多个模块有 unit test、integration test、benchmark、OpenAPI test、Playwright E2E 文件 |
 | Error handling | 中等 | handler 层有错误映射，service/repository 用 sentinel errors 和 wrapped errors |
-| Security | 中等 | 密码 hash、JWT、refresh token hash、source config redaction、netguard、防 SSRF；DLQ 管理接口缺少更细权限边界 |
+| Security | 中等 | 密码 hash、JWT、refresh token hash、source config redaction、netguard、防 SSRF；DLQ 管理接口按用户隔离，但没有角色/管理员权限模型 |
 | Scalability | 中等 | API、scheduler、worker 可拆模式；K8s HPA 只覆盖 backend；数据库和 Kafka 扩展未深入实现 |
 | Data consistency | 中等 | 文章去重靠唯一索引，collection lock 防并发采集，outbox 保留待发送事件；仍需更多幂等和事务边界说明 |
 | Operational maturity | 中等 | runbook、troubleshooting、alert rules、dashboards 存在；缺少真实事故演练和部署结果证据 |
@@ -65,7 +65,7 @@
 - “已经上线并处理大量真实用户内容。”
 - “使用真实大模型完成摘要和问答。”
 - “消息处理完全不会重复。”
-- “DLQ 管理已经做了管理员权限控制。”
+- “DLQ 管理已经做了管理员权限控制。”应改为“DLQ 管理已按登录用户隔离，但还没有管理员/角色权限模型。”
 - “Kubernetes 生产部署已经验证无误。”
 
 ## 7. 建议项目定位

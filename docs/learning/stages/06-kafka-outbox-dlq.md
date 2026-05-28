@@ -99,7 +99,7 @@ POST /sources/:id/collect
 
 ### 2-minute explanation
 
-“outbox 用数据库保存待发送事件，解决 API 请求成功但 Kafka 写入失败的窗口。dispatcher 定期扫描 ready event 并发送。worker 的 `HandleMessage` 是状态机核心：解析请求、等待下次尝试时间、执行采集、写结果事件。失败时，retryable 错误会增加 attempt 并重新投递 requested；source 不存在或 collector 不存在等永久错误，或者达到最大次数，就写入 DLQ。DLQ 支持 replay 和 handled，但当前权限只看到登录态校验。”
+“outbox 用数据库保存待发送事件，解决 API 请求成功但 Kafka 写入失败的窗口。dispatcher 定期扫描 ready event 并发送。worker 的 `HandleMessage` 是状态机核心：解析请求、等待下次尝试时间、执行采集、写结果事件。失败时，retryable 错误会增加 attempt 并重新投递 requested；source 不存在或 collector 不存在等永久错误，或者达到最大次数，就写入 DLQ。DLQ 支持 list、replay 和 handled，并按登录用户过滤；如果要做后台运维，还需要补 admin/role 权限模型。”
 
 ### Follow-up questions
 
@@ -109,7 +109,7 @@ POST /sources/:id/collect
 | retry 如何避免无限重试？ | worker 有 max attempts；outbox dispatcher 自身失败目前没有最大次数 |
 | DLQ 用来解决什么？ | 保存不可自动恢复的失败，避免任务无限卡住 |
 | 幂等由什么组成？ | Kafka key、source lock、article unique index |
-| 当前需要改进哪里？ | DLQ 权限、outbox 幂等唯一键、更多事务边界 |
+| 当前需要改进哪里？ | DLQ admin/role 权限、outbox 幂等唯一键、更多事务边界 |
 
 ## 10. Resume Risk Notes
 
@@ -120,5 +120,4 @@ POST /sources/:id/collect
 - [ ] 能画出 outbox 到 worker 的流程。
 - [ ] 能解释 retry 和 DLQ。
 - [ ] 能解释为什么不能夸大幂等。
-- [ ] 能指出 DLQ 权限风险。
-
+- [ ] 能指出 DLQ 只有用户隔离、没有 admin/role 权限模型。
