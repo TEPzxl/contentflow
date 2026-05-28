@@ -15,8 +15,9 @@ import { SettingsPanel } from "@/features/settings/settings-panel";
 import { Badge, Button, ErrorBanner } from "@/components/ui";
 
 type View = "articles" | "sources" | "runs" | "dlq" | "ai" | "settings";
+type AuthMode = "login" | "register";
 
-export function Workbench() {
+export function Workbench({ initialAuthMode = "login" }: { initialAuthMode?: AuthMode }) {
   const [session, setSession] = useState<SessionSnapshot | null>(() => readSession());
   const [view, setView] = useState<View>("articles");
   const [sources, setSources] = useState<Source[]>([]);
@@ -53,7 +54,7 @@ export function Workbench() {
   }
 
   if (!session) {
-    return <AuthPanel onAuthenticated={setSession} />;
+    return <AuthPanel initialMode={initialAuthMode} onAuthenticated={setSession} />;
   }
 
   return (

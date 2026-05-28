@@ -7,7 +7,12 @@ test("shows authentication workspace entry", async ({ page }) => {
   await expect(page.getByLabel("邮箱")).toBeVisible();
   await expect(page.getByLabel("密码")).toBeVisible();
 
-  await page.getByRole("button", { name: "切换到注册" }).click();
+  await page.getByLabel("邮箱").fill("demo@example.com");
+  await page.getByLabel("密码").fill("password123");
+
+  await page.getByRole("link", { name: "还没有账号？" }).click();
   await expect(page.getByRole("heading", { name: "创建账号" })).toBeVisible();
   await expect(page.getByLabel("显示名称")).toBeVisible();
+  await expect(page.getByLabel("邮箱")).toHaveValue("");
+  await expect(page.getByLabel("密码")).toHaveValue("");
 });

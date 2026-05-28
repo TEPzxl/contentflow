@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api, humanizeAPIError } from "@/lib/api/client";
 import { saveSession } from "@/lib/auth/session";
 import type { SessionSnapshot } from "@/lib/auth/session";
@@ -8,13 +8,31 @@ import { Button, ErrorBanner, TextInput } from "@/components/ui";
 
 type AuthMode = "login" | "register";
 
-export function AuthPanel({ onAuthenticated }: { onAuthenticated: (session: SessionSnapshot) => void }) {
-  const [mode, setMode] = useState<AuthMode>("login");
+export function AuthPanel({
+  initialMode = "login",
+  onAuthenticated
+}: {
+  initialMode?: AuthMode;
+  onAuthenticated: (session: SessionSnapshot) => void;
+}) {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  function resetForMode(nextMode: AuthMode) {
+    setMode(nextMode);
+    setEmail("");
+    setPassword("");
+    setDisplayName("");
+    setError("");
+  }
+
+  useEffect(() => {
+    resetForMode(initialMode);
+  }, [initialMode]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,11 +89,14 @@ export function AuthPanel({ onAuthenticated }: { onAuthenticated: (session: Sess
           </Button>
         </form>
 
-        <div className="mt-5 flex items-center justify-between text-sm">
-          <span className="text-slate-500">{mode === "login" ? "还没有账号？" : "已有账号？"}</span>
-          <Button type="button" variant="ghost" onClick={() => setMode(mode === "login" ? "register" : "login")}>
-            {mode === "login" ? "切换到注册" : "切换到登录"}
-          </Button>
+        <div className="mt-5 text-right text-sm">
+          <a
+            className="font-medium text-blue-700 underline-offset-4 hover:text-blue-800 hover:underline"
+            href={mode === "login" ? "/?auth=register" : "/?auth=login"}
+            onClick={() => resetForMode(mode === "login" ? "register" : "login")}
+          >
+            {mode === "login" ? "还没有账号？" : "已有账号？"}
+          </a>
         </div>
       </section>
     </main>
