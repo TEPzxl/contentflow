@@ -2,11 +2,13 @@ package ai
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/tepzxl/contentflow/internal/module/article"
+	"github.com/tepzxl/contentflow/internal/secrets"
 )
 
 func TestService_RequestSummaryQueuesPendingJob(t *testing.T) {
@@ -175,9 +177,136 @@ func TestService_RAGSearchUsesEmbeddingRetrievalWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestService_RAGSearchUsesUserAISettingsAssistant(t *testing.T) {
+	repo := newFakeRepository()
+	box := testSecretBox(t)
+	ciphertext, nonce, err := box.EncryptString("sk-user")
+	if err != nil {
+		t.Fatalf("encrypt api key: %v", err)
+	}
+	repo.aiSettings = &UserAISettingsRecord{
+		UserID:           10,
+		Provider:         "openai-compatible",
+		BaseURL:          "http://ai.local/v1",
+		Model:            "chat-model",
+		EmbeddingModel:   "embed-model",
+		APIKeyCiphertext: ciphertext,
+		APIKeyNonce:      nonce,
+	}
+	repo.embeddings = []EmbeddingRecord{
+		{ID: 1, UserID: 10, ArticleID: 1, Model: "embed-model", Version: DefaultEmbeddingVersion, Embedding: []float64{1, 0}},
+	}
+	articles := newFakeArticleRepository()
+	articles.rows[1] = article.ArticleWithState{ID: 1, Title: "User setting hit", Summary: "Configured assistant result"}
+	var gotConfig OpenAIConfig
+	service := NewService(
+		repo,
+		articles,
+		fakeAssistant{embeddingModel: "fallback-model"},
+		WithSecretBox(box),
+		WithAssistantFactory(func(cfg OpenAIConfig) (Assistant, error) {
+			gotConfig = cfg
+			return fakeAssistant{embeddingModel: cfg.EmbeddingModel, answerModel: cfg.ChatModel, embedding: []float64{1, 0}}, nil
+		}),
+	)
+
+	result, err := service.RAGSearch(context.Background(), RAGSearchRequest{UserID: 10, Query: "semantic", Limit: 1})
+	if err != nil {
+		t.Fatalf("RAGSearch() error = %v", err)
+	}
+
+	if gotConfig.APIKey != "sk-user" || gotConfig.ChatModel != "chat-model" || gotConfig.EmbeddingModel != "embed-model" {
+		t.Fatalf("assistant config = %#v", gotConfig)
+	}
+	if result.Model != "chat-model" || len(result.Citations) != 1 || result.Citations[0].ArticleID != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestService_UpdateAISettingsEncryptsAPIKeyAndRedactsResponse(t *testing.T) {
+	repo := newFakeRepository()
+	box := testSecretBox(t)
+	service := NewService(repo, newFakeArticleRepository(), fakeAssistant{}, WithSecretBox(box))
+	apiKey := "sk-test"
+
+	result, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
+		UserID:         10,
+		Provider:       "openai-compatible",
+		BaseURL:        "http://ai.local/v1",
+		Model:          "chat-model",
+		EmbeddingModel: "embed-model",
+		APIKey:         &apiKey,
+	})
+	if err != nil {
+		t.Fatalf("UpdateAISettings() error = %v", err)
+	}
+
+	if !result.HasAPIKey {
+		t.Fatal("HasAPIKey = false, want true")
+	}
+	if result.Provider != "openai-compatible" || result.Model != "chat-model" {
+		t.Fatalf("result = %#v", result)
+	}
+	if string(repo.aiSettings.APIKeyCiphertext) == apiKey {
+		t.Fatal("stored api key ciphertext is plaintext")
+	}
+	if len(repo.aiSettings.APIKeyCiphertext) == 0 || len(repo.aiSettings.APIKeyNonce) == 0 {
+		t.Fatalf("encrypted fields are empty: %#v", repo.aiSettings)
+	}
+}
+
+func TestService_GetAISettingsRedactsEncryptedAPIKey(t *testing.T) {
+	repo := newFakeRepository()
+	box := testSecretBox(t)
+	ciphertext, nonce, err := box.EncryptString("sk-test")
+	if err != nil {
+		t.Fatalf("encrypt api key: %v", err)
+	}
+	repo.aiSettings = &UserAISettingsRecord{
+		UserID:           10,
+		Provider:         "openai-compatible",
+		BaseURL:          "http://ai.local/v1",
+		Model:            "chat-model",
+		EmbeddingModel:   "embed-model",
+		APIKeyCiphertext: ciphertext,
+		APIKeyNonce:      nonce,
+	}
+	service := NewService(repo, newFakeArticleRepository(), fakeAssistant{}, WithSecretBox(box))
+
+	result, err := service.GetAISettings(context.Background(), GetAISettingsRequest{UserID: 10})
+	if err != nil {
+		t.Fatalf("GetAISettings() error = %v", err)
+	}
+
+	if !result.HasAPIKey {
+		t.Fatal("HasAPIKey = false, want true")
+	}
+	if result.Provider != "openai-compatible" || result.BaseURL != "http://ai.local/v1" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestService_UpdateAISettingsRejectsAPIKeyWithoutEncryptionKey(t *testing.T) {
+	service := NewService(newFakeRepository(), newFakeArticleRepository(), fakeAssistant{})
+	apiKey := "sk-test"
+
+	_, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
+		UserID:   10,
+		Provider: "openai-compatible",
+		BaseURL:  "http://ai.local/v1",
+		Model:    "chat-model",
+		APIKey:   &apiKey,
+	})
+	if !errors.Is(err, ErrAISettingsEncryptionKeyRequired) {
+		t.Fatalf("UpdateAISettings() error = %v, want ErrAISettingsEncryptionKeyRequired", err)
+	}
+}
+
 type fakeAssistant struct {
-	summarizeErr error
-	embedding    []float64
+	summarizeErr   error
+	embedding      []float64
+	embeddingModel string
+	answerModel    string
 }
 
 func (a fakeAssistant) Summarize(context.Context, ArticleInput) (SummaryResult, error) {
@@ -192,7 +321,8 @@ func (a fakeAssistant) Embed(context.Context, string) (EmbeddingResult, error) {
 	if vector == nil {
 		vector = []float64{1, 0}
 	}
-	return EmbeddingResult{Model: "fake-embedding", Version: DefaultEmbeddingVersion, Dimensions: len(vector), Vector: vector}, nil
+	model := firstNonEmpty(a.embeddingModel, "fake-embedding")
+	return EmbeddingResult{Model: model, Version: DefaultEmbeddingVersion, Dimensions: len(vector), Vector: vector}, nil
 }
 
 func (a fakeAssistant) Digest(context.Context, []ArticleInput) (DigestResult, error) {
@@ -204,7 +334,7 @@ func (a fakeAssistant) Answer(_ context.Context, _ string, articles []ArticleInp
 	for _, item := range articles {
 		citations = append(citations, CitationDTO{ArticleID: item.ID, Title: item.Title, URL: item.URL, Snippet: item.Summary})
 	}
-	return RAGResult{Model: DefaultSummaryModel, PromptVersion: DefaultRAGPrompt, Answer: "answer", Citations: citations}, nil
+	return RAGResult{Model: firstNonEmpty(a.answerModel, DefaultSummaryModel), PromptVersion: DefaultRAGPrompt, Answer: "answer", Citations: citations}, nil
 }
 
 type fakeRepository struct {
@@ -217,6 +347,7 @@ type fakeRepository struct {
 	failedNextAttempt time.Time
 	summary           *ArticleSummary
 	embeddings        []EmbeddingRecord
+	aiSettings        *UserAISettingsRecord
 }
 
 func newFakeRepository() *fakeRepository {
@@ -286,6 +417,43 @@ func (r *fakeRepository) UpsertDigest(_ context.Context, params UpsertDigestPara
 
 func (r *fakeRepository) FindDigest(context.Context, int64, time.Time, string) (*DigestRecord, error) {
 	return nil, ErrDigestNotFound
+}
+
+func (r *fakeRepository) FindAISettings(_ context.Context, userID int64) (*UserAISettingsRecord, error) {
+	if r.aiSettings == nil || r.aiSettings.UserID != userID {
+		return nil, ErrAISettingsNotFound
+	}
+	return r.aiSettings, nil
+}
+
+func (r *fakeRepository) UpsertAISettings(_ context.Context, params UpsertAISettingsParams) (*UserAISettingsRecord, error) {
+	record := UserAISettingsRecord{
+		ID:               1,
+		UserID:           params.UserID,
+		Provider:         params.Provider,
+		BaseURL:          params.BaseURL,
+		Model:            params.Model,
+		EmbeddingModel:   params.EmbeddingModel,
+		APIKeyCiphertext: params.APIKeyCiphertext,
+		APIKeyNonce:      params.APIKeyNonce,
+		CreatedAt:        params.Now,
+		UpdatedAt:        params.Now,
+	}
+	r.aiSettings = &record
+	return &record, nil
+}
+
+func testSecretBox(t *testing.T) *secrets.AESGCM {
+	t.Helper()
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	box, err := secrets.NewAESGCMFromEncodedKey(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatalf("NewAESGCMFromEncodedKey() error = %v", err)
+	}
+	return box
 }
 
 type fakeArticleRepository struct {

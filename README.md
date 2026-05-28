@@ -81,6 +81,8 @@ model=<chat-model>
 
 也可以使用正式环境变量 `CONTENTFLOW_AI_API_KEY`、`CONTENTFLOW_AI_BASE_URL`、`CONTENTFLOW_AI_MODEL`。有 API key 时后端会启用 OpenAI-compatible chat completions 和 embeddings；密钥只从本地环境读取，不会写入仓库。生产形态下 AI 设置应由用户在页面中管理，本地 `.env` 仅用于开发阶段。
 
+用户在页面保存 AI API key 时，后端需要 `CONTENTFLOW_AI_SETTINGS_ENCRYPTION_KEY` 加密后入库。该值必须是 32 字节 base64 或 64 字符 hex；接口只返回 `has_api_key`，不会回显明文 key。
+
 ## 前端启动
 
 ```fish

@@ -27,12 +27,13 @@ type Config struct {
 }
 
 type AIConfig struct {
-	Provider       string        `mapstructure:"provider"`
-	BaseURL        string        `mapstructure:"base_url"`
-	APIKey         string        `mapstructure:"api_key"`
-	Model          string        `mapstructure:"model"`
-	EmbeddingModel string        `mapstructure:"embedding_model"`
-	Timeout        time.Duration `mapstructure:"timeout"`
+	Provider              string        `mapstructure:"provider"`
+	BaseURL               string        `mapstructure:"base_url"`
+	APIKey                string        `mapstructure:"api_key"`
+	Model                 string        `mapstructure:"model"`
+	EmbeddingModel        string        `mapstructure:"embedding_model"`
+	Timeout               time.Duration `mapstructure:"timeout"`
+	SettingsEncryptionKey string        `mapstructure:"settings_encryption_key"`
 }
 
 type ObservabilityConfig struct {
@@ -210,6 +211,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ai.model", "")
 	v.SetDefault("ai.embedding_model", "text-embedding-3-small")
 	v.SetDefault("ai.timeout", "30s")
+	v.SetDefault("ai.settings_encryption_key", "")
 }
 
 func applyLegacyAIEnv(v *viper.Viper) {

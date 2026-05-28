@@ -7,6 +7,7 @@ import (
 
 	"github.com/tepzxl/contentflow/internal/config"
 	"github.com/tepzxl/contentflow/internal/module/ai"
+	"github.com/tepzxl/contentflow/internal/secrets"
 )
 
 func newConfiguredAssistant(cfg config.AIConfig, log *slog.Logger) (ai.Assistant, error) {
@@ -47,4 +48,15 @@ func newConfiguredAssistant(cfg config.AIConfig, log *slog.Logger) (ai.Assistant
 	default:
 		return nil, fmt.Errorf("unsupported ai provider %q", cfg.Provider)
 	}
+}
+
+func newAISecretBox(encodedKey string) (ai.SecretBox, error) {
+	if strings.TrimSpace(encodedKey) == "" {
+		return nil, nil
+	}
+	box, err := secrets.NewAESGCMFromEncodedKey(encodedKey)
+	if err != nil {
+		return nil, fmt.Errorf("init ai settings encryption: %w", err)
+	}
+	return box, nil
 }

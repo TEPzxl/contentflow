@@ -133,6 +133,25 @@ auth:
 	}
 }
 
+func TestLoadAppliesAISettingsEncryptionKey(t *testing.T) {
+	t.Setenv("CONTENTFLOW_AI_SETTINGS_ENCRYPTION_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=")
+	path := writeTempConfig(t, `
+app:
+  env: dev
+auth:
+  jwt_secret: default secret
+`)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.AI.SettingsEncryptionKey == "" {
+		t.Fatal("AI.SettingsEncryptionKey is empty")
+	}
+}
+
 func writeTempConfig(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")

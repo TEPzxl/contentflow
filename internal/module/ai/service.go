@@ -14,12 +14,21 @@ import (
 )
 
 type Service struct {
-	repo         Repository
-	articles     article.Repository
-	assistant    Assistant
-	now          func() time.Time
-	maxAttempts  int
-	retryBackoff time.Duration
+	repo             Repository
+	articles         article.Repository
+	assistant        Assistant
+	assistantFactory AssistantFactory
+	secretBox        SecretBox
+	now              func() time.Time
+	maxAttempts      int
+	retryBackoff     time.Duration
+}
+
+type AssistantFactory func(cfg OpenAIConfig) (Assistant, error)
+
+type SecretBox interface {
+	EncryptString(plaintext string) ([]byte, []byte, error)
+	DecryptString(ciphertext, nonce []byte) (string, error)
 }
 
 type Option func(*Service)
@@ -41,17 +50,32 @@ func WithRetry(maxAttempts int, backoff time.Duration) Option {
 	}
 }
 
+func WithSecretBox(box SecretBox) Option {
+	return func(s *Service) {
+		s.secretBox = box
+	}
+}
+
+func WithAssistantFactory(factory AssistantFactory) Option {
+	return func(s *Service) {
+		if factory != nil {
+			s.assistantFactory = factory
+		}
+	}
+}
+
 func NewService(repo Repository, articles article.Repository, assistant Assistant, opts ...Option) *Service {
 	if assistant == nil {
 		assistant = NewExtractiveAssistant()
 	}
 	s := &Service{
-		repo:         repo,
-		articles:     articles,
-		assistant:    assistant,
-		now:          time.Now,
-		maxAttempts:  3,
-		retryBackoff: time.Minute,
+		repo:             repo,
+		articles:         articles,
+		assistant:        assistant,
+		assistantFactory: defaultAssistantFactory,
+		now:              time.Now,
+		maxAttempts:      3,
+		retryBackoff:     time.Minute,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -101,6 +125,65 @@ func (s *Service) GetSummary(ctx context.Context, req GetSummaryRequest) (*Summa
 	return &dto, nil
 }
 
+func (s *Service) GetAISettings(ctx context.Context, req GetAISettingsRequest) (*AISettingsDTO, error) {
+	record, err := s.repo.FindAISettings(ctx, req.UserID)
+	if errors.Is(err, ErrAISettingsNotFound) {
+		dto := defaultAISettingsDTO()
+		return &dto, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	dto := aiSettingsToDTO(*record)
+	return &dto, nil
+}
+
+func (s *Service) UpdateAISettings(ctx context.Context, req UpdateAISettingsRequest) (*AISettingsDTO, error) {
+	current, err := s.repo.FindAISettings(ctx, req.UserID)
+	if err != nil && !errors.Is(err, ErrAISettingsNotFound) {
+		return nil, err
+	}
+
+	ciphertext := []byte(nil)
+	nonce := []byte(nil)
+	if current != nil {
+		ciphertext = current.APIKeyCiphertext
+		nonce = current.APIKeyNonce
+	}
+
+	if req.APIKey != nil {
+		apiKey := strings.TrimSpace(*req.APIKey)
+		if apiKey == "" {
+			ciphertext = nil
+			nonce = nil
+		} else {
+			if s.secretBox == nil {
+				return nil, ErrAISettingsEncryptionKeyRequired
+			}
+			ciphertext, nonce, err = s.secretBox.EncryptString(apiKey)
+			if err != nil {
+				return nil, fmt.Errorf("encrypt ai api key: %w", err)
+			}
+		}
+	}
+
+	record, err := s.repo.UpsertAISettings(ctx, UpsertAISettingsParams{
+		UserID:           req.UserID,
+		Provider:         normalizeAIProvider(req.Provider),
+		BaseURL:          firstNonEmpty(req.BaseURL, DefaultOpenAIBaseURL),
+		Model:            strings.TrimSpace(req.Model),
+		EmbeddingModel:   firstNonEmpty(req.EmbeddingModel, DefaultOpenAIEmbeddingModel),
+		APIKeyCiphertext: ciphertext,
+		APIKeyNonce:      nonce,
+		Now:              s.now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	dto := aiSettingsToDTO(*record)
+	return &dto, nil
+}
+
 func (s *Service) ProcessNextSummary(ctx context.Context) (bool, error) {
 	job, err := s.repo.ClaimNextSummary(ctx, s.now(), s.maxAttempts)
 	if errors.Is(err, ErrNoSummaryJob) {
@@ -118,7 +201,15 @@ func (s *Service) ProcessNextSummary(ctx context.Context) (bool, error) {
 		return true, err
 	}
 
-	result, err := s.assistant.Summarize(ctx, articleInput(row))
+	assistant, err := s.assistantForUser(ctx, job.UserID)
+	if err != nil {
+		if _, failErr := s.repo.FailSummary(ctx, job.ID, err.Error(), s.nextAttempt(job.Attempts), s.now()); failErr != nil {
+			return true, failErr
+		}
+		return true, err
+	}
+
+	result, err := assistant.Summarize(ctx, articleInput(row))
 	if err != nil {
 		if _, failErr := s.repo.FailSummary(ctx, job.ID, err.Error(), s.nextAttempt(job.Attempts), s.now()); failErr != nil {
 			return true, failErr
@@ -137,7 +228,12 @@ func (s *Service) GenerateEmbedding(ctx context.Context, req GenerateEmbeddingRe
 		return nil, err
 	}
 
-	result, err := s.assistant.Embed(ctx, embeddingText(row))
+	assistant, err := s.assistantForUser(ctx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := assistant.Embed(ctx, embeddingText(row))
 	if err != nil {
 		return nil, fmt.Errorf("generate embedding: %w", err)
 	}
@@ -224,7 +320,11 @@ func (s *Service) GenerateDigest(ctx context.Context, req GenerateDigestRequest)
 	for _, row := range rows {
 		inputs = append(inputs, articleInput(row))
 	}
-	generated, err := s.assistant.Digest(ctx, inputs)
+	assistant, err := s.assistantForUser(ctx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+	generated, err := assistant.Digest(ctx, inputs)
 	if err != nil {
 		return nil, fmt.Errorf("generate digest: %w", err)
 	}
@@ -259,11 +359,15 @@ func (s *Service) RAGSearch(ctx context.Context, req RAGSearchRequest) (*RAGAnsw
 		return nil, ErrEmptyQuery
 	}
 	limit := normalizeLimit(req.Limit, 5, 12)
+	assistant, err := s.assistantForUser(ctx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
 
-	if inputs, err := s.embeddingRAGInputs(ctx, req.UserID, query, limit); err != nil {
+	if inputs, err := s.embeddingRAGInputs(ctx, assistant, req.UserID, query, limit); err != nil {
 		return nil, err
 	} else if len(inputs) > 0 {
-		result, err := s.assistant.Answer(ctx, query, inputs)
+		result, err := assistant.Answer(ctx, query, inputs)
 		if err != nil {
 			return nil, fmt.Errorf("generate rag answer: %w", err)
 		}
@@ -288,7 +392,7 @@ func (s *Service) RAGSearch(ctx context.Context, req RAGSearchRequest) (*RAGAnsw
 	for _, row := range rows {
 		inputs = append(inputs, articleInput(row))
 	}
-	result, err := s.assistant.Answer(ctx, query, inputs)
+	result, err := assistant.Answer(ctx, query, inputs)
 	if err != nil {
 		return nil, fmt.Errorf("generate rag answer: %w", err)
 	}
@@ -300,8 +404,8 @@ func (s *Service) RAGSearch(ctx context.Context, req RAGSearchRequest) (*RAGAnsw
 	}, nil
 }
 
-func (s *Service) embeddingRAGInputs(ctx context.Context, userID int64, query string, limit int) ([]ArticleInput, error) {
-	queryEmbedding, err := s.assistant.Embed(ctx, query)
+func (s *Service) embeddingRAGInputs(ctx context.Context, assistant Assistant, userID int64, query string, limit int) ([]ArticleInput, error) {
+	queryEmbedding, err := assistant.Embed(ctx, query)
 	if err != nil {
 		return nil, nil
 	}
@@ -336,6 +440,43 @@ func (s *Service) embeddingRAGInputs(ctx context.Context, userID int64, query st
 		inputs = append(inputs, articleInput(row))
 	}
 	return inputs, nil
+}
+
+func (s *Service) assistantForUser(ctx context.Context, userID int64) (Assistant, error) {
+	record, err := s.repo.FindAISettings(ctx, userID)
+	if errors.Is(err, ErrAISettingsNotFound) {
+		return s.assistant, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if normalizeAIProvider(record.Provider) == "local" {
+		return s.assistant, nil
+	}
+	if len(record.APIKeyCiphertext) == 0 || len(record.APIKeyNonce) == 0 {
+		return nil, ErrAISettingsEncryptionKeyRequired
+	}
+	if s.secretBox == nil {
+		return nil, ErrAISettingsEncryptionKeyRequired
+	}
+	apiKey, err := s.secretBox.DecryptString(record.APIKeyCiphertext, record.APIKeyNonce)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt ai api key: %w", err)
+	}
+	assistant, err := s.assistantFactory(OpenAIConfig{
+		BaseURL:        firstNonEmpty(record.BaseURL, DefaultOpenAIBaseURL),
+		APIKey:         apiKey,
+		ChatModel:      record.Model,
+		EmbeddingModel: firstNonEmpty(record.EmbeddingModel, DefaultOpenAIEmbeddingModel),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return assistant, nil
+}
+
+func defaultAssistantFactory(cfg OpenAIConfig) (Assistant, error) {
+	return NewOpenAICompatibleAssistant(cfg)
 }
 
 func (s *Service) nextAttempt(attempts int) time.Time {
@@ -421,6 +562,35 @@ func embeddingToDTO(record EmbeddingRecord) EmbeddingDTO {
 		ContentHash: record.ContentHash,
 		CreatedAt:   record.CreatedAt,
 		UpdatedAt:   record.UpdatedAt,
+	}
+}
+
+func aiSettingsToDTO(record UserAISettingsRecord) AISettingsDTO {
+	return AISettingsDTO{
+		Provider:       normalizeAIProvider(record.Provider),
+		BaseURL:        record.BaseURL,
+		Model:          record.Model,
+		EmbeddingModel: record.EmbeddingModel,
+		HasAPIKey:      len(record.APIKeyCiphertext) > 0 && len(record.APIKeyNonce) > 0,
+		UpdatedAt:      record.UpdatedAt,
+	}
+}
+
+func defaultAISettingsDTO() AISettingsDTO {
+	return AISettingsDTO{
+		Provider:       "local",
+		BaseURL:        DefaultOpenAIBaseURL,
+		EmbeddingModel: DefaultOpenAIEmbeddingModel,
+		HasAPIKey:      false,
+	}
+}
+
+func normalizeAIProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai", "openai-compatible":
+		return "openai-compatible"
+	default:
+		return "local"
 	}
 }
 

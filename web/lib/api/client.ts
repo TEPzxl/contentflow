@@ -5,6 +5,8 @@ import type {
   Article,
   ArticleEmbedding,
   ArticleSummary,
+  AISettings,
+  AISettingsPayload,
   AuthTokens,
   CollectSourceResult,
   CollectionRun,
@@ -22,7 +24,7 @@ import type {
 import { APIError } from "@/lib/api/types";
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   auth?: boolean;
   retryOnUnauthorized?: boolean;
@@ -186,6 +188,12 @@ export const api = {
   ragSearch(payload: { query: string; limit?: number }) {
     return request<{ answer: RAGAnswer }>("/ai/rag-search", { method: "POST", body: payload });
   },
+  getAISettings() {
+    return request<{ settings: AISettings }>("/ai/settings");
+  },
+  updateAISettings(payload: AISettingsPayload) {
+    return request<{ settings: AISettings }>("/ai/settings", { method: "PUT", body: payload });
+  },
   listDLQ(params: { status?: string; limit?: number; offset?: number } = {}) {
     return request<ListResponse<DLQItem, "items">>(withQuery("/collection-dlq", params));
   },
@@ -215,6 +223,7 @@ export function humanizeAPIError(error: unknown) {
     digest_not_found: "日报尚未生成",
     dlq_item_not_found: "DLQ 记录不存在或无权访问",
     empty_query: "请输入搜索问题",
+    ai_settings_encryption_key_required: "服务端尚未配置 AI 密钥加密 key",
     rate_limited: "操作过于频繁，请稍后再试"
   };
 

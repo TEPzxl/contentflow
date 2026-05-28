@@ -49,3 +49,20 @@ func TestNewConfiguredAssistantRejectsUnknownProvider(t *testing.T) {
 		t.Fatal("newConfiguredAssistant() error is nil")
 	}
 }
+
+func TestNewAISecretBoxAllowsEmptyKey(t *testing.T) {
+	box, err := newAISecretBox("")
+	if err != nil {
+		t.Fatalf("newAISecretBox() error = %v", err)
+	}
+	if box != nil {
+		t.Fatalf("box = %#v, want nil", box)
+	}
+}
+
+func TestNewAISecretBoxRejectsInvalidKey(t *testing.T) {
+	_, err := newAISecretBox("short")
+	if err == nil {
+		t.Fatal("newAISecretBox() error is nil")
+	}
+}

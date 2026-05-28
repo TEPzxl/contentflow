@@ -174,6 +174,23 @@ export type RAGAnswer = {
   }>;
 };
 
+export type AISettings = {
+  provider: "local" | "openai-compatible" | string;
+  base_url: string;
+  model: string;
+  embedding_model: string;
+  has_api_key: boolean;
+  updated_at?: string;
+};
+
+export type AISettingsPayload = {
+  provider: string;
+  base_url: string;
+  model: string;
+  embedding_model: string;
+  api_key?: string;
+};
+
 export type ListResponse<TItem, TKey extends string> = Record<TKey, TItem[]> & {
   total: number;
   limit: number;

@@ -178,7 +178,15 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	aiService := ai.NewService(aiRepo, articleRepo, assistant)
+	aiSecretBox, err := newAISecretBox(cfg.AI.SettingsEncryptionKey)
+	if err != nil {
+		return err
+	}
+	aiOptions := []ai.Option{}
+	if aiSecretBox != nil {
+		aiOptions = append(aiOptions, ai.WithSecretBox(aiSecretBox))
+	}
+	aiService := ai.NewService(aiRepo, articleRepo, assistant, aiOptions...)
 	aiHandler := ai.NewHandler(aiService)
 	aiSummaryWorker := ai.NewSummaryWorker(aiService, ai.WithWorkerLogger(log))
 

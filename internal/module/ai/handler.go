@@ -21,6 +21,8 @@ type HandlerService interface {
 	GenerateDigest(ctx context.Context, req GenerateDigestRequest) (*DigestDTO, error)
 	GetDigest(ctx context.Context, req GetDigestRequest) (*DigestDTO, error)
 	RAGSearch(ctx context.Context, req RAGSearchRequest) (*RAGAnswerDTO, error)
+	GetAISettings(ctx context.Context, req GetAISettingsRequest) (*AISettingsDTO, error)
+	UpdateAISettings(ctx context.Context, req UpdateAISettingsRequest) (*AISettingsDTO, error)
 }
 
 type Handler struct {
@@ -44,6 +46,8 @@ func RegisterRoutes(rg *gin.RouterGroup, h *Handler, authRequired gin.HandlerFun
 	ai.POST("/digests/:date", h.GenerateDigest)
 	ai.GET("/digests/:date", h.GetDigest)
 	ai.POST("/rag-search", h.RAGSearch)
+	ai.GET("/settings", h.GetAISettings)
+	ai.PUT("/settings", h.UpdateAISettings)
 }
 
 func (h *Handler) RequestSummary(c *gin.Context) {
@@ -176,6 +180,44 @@ func (h *Handler) RAGSearch(c *gin.Context) {
 	response.OK(c, ragAnswerHTTPWrapper{Answer: *result})
 }
 
+func (h *Handler) GetAISettings(c *gin.Context) {
+	userID, ok := userID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.GetAISettings(c.Request.Context(), GetAISettingsRequest{UserID: userID})
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	response.OK(c, aiSettingsHTTPWrapper{Settings: *result})
+}
+
+func (h *Handler) UpdateAISettings(c *gin.Context) {
+	userID, ok := userID(c)
+	if !ok {
+		return
+	}
+	var req updateAISettingsHTTPReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid_request", "invalid ai settings request")
+		return
+	}
+	result, err := h.service.UpdateAISettings(c.Request.Context(), UpdateAISettingsRequest{
+		UserID:         userID,
+		Provider:       req.Provider,
+		BaseURL:        req.BaseURL,
+		Model:          req.Model,
+		EmbeddingModel: req.EmbeddingModel,
+		APIKey:         req.APIKey,
+	})
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	response.OK(c, aiSettingsHTTPWrapper{Settings: *result})
+}
+
 func handleError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, article.ErrArticleNotFound):
@@ -188,6 +230,8 @@ func handleError(c *gin.Context, err error) {
 		response.Error(c, http.StatusNotFound, "digest_not_found", "digest not found")
 	case errors.Is(err, ErrEmptyQuery):
 		response.Error(c, http.StatusBadRequest, "empty_query", "query is required")
+	case errors.Is(err, ErrAISettingsEncryptionKeyRequired):
+		response.Error(c, http.StatusBadRequest, "ai_settings_encryption_key_required", "ai settings encryption key is required")
 	default:
 		response.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
@@ -249,6 +293,14 @@ type ragSearchHTTPReq struct {
 	Limit int    `json:"limit"`
 }
 
+type updateAISettingsHTTPReq struct {
+	Provider       string  `json:"provider"`
+	BaseURL        string  `json:"base_url"`
+	Model          string  `json:"model"`
+	EmbeddingModel string  `json:"embedding_model"`
+	APIKey         *string `json:"api_key"`
+}
+
 type summaryHTTPWrapper struct {
 	Summary SummaryDTO `json:"summary"`
 }
@@ -267,4 +319,8 @@ type digestHTTPWrapper struct {
 
 type ragAnswerHTTPWrapper struct {
 	Answer RAGAnswerDTO `json:"answer"`
+}
+
+type aiSettingsHTTPWrapper struct {
+	Settings AISettingsDTO `json:"settings"`
 }

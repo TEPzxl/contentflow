@@ -71,3 +71,4 @@ ai:
   model: ""
   embedding_model: text-embedding-3-small
   timeout: 30s
+  settings_encryption_key: ""

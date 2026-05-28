@@ -597,6 +597,39 @@ paths:
                 $ref: "#/components/schemas/RAGAnswerEnvelope"
         "400":
           $ref: "#/components/responses/BadRequest"
+  /api/v1/ai/settings:
+    get:
+      tags: [AI]
+      summary: Get current user's AI settings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: AI settings without API key plaintext
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AISettingsEnvelope"
+    put:
+      tags: [AI]
+      summary: Update current user's AI settings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAISettingsRequest"
+      responses:
+        "200":
+          description: Updated AI settings without API key plaintext
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AISettingsEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 components:
   securitySchemes:
     bearerAuth:
@@ -1280,3 +1313,44 @@ components:
           properties:
             answer:
               $ref: "#/components/schemas/RAGAnswer"
+    AISettings:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [local, openai-compatible]
+        base_url:
+          type: string
+        model:
+          type: string
+        embedding_model:
+          type: string
+        has_api_key:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+    UpdateAISettingsRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [local, openai-compatible]
+        base_url:
+          type: string
+        model:
+          type: string
+        embedding_model:
+          type: string
+        api_key:
+          type: string
+          nullable: true
+          writeOnly: true
+    AISettingsEnvelope:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            settings:
+              $ref: "#/components/schemas/AISettings"

@@ -75,6 +75,23 @@ func (DailyDigest) TableName() string {
 	return "daily_digests"
 }
 
+type UserAISettings struct {
+	ID               int64     `gorm:"column:id;primaryKey"`
+	UserID           int64     `gorm:"column:user_id;not null;uniqueIndex"`
+	Provider         string    `gorm:"column:provider;type:varchar(50);not null"`
+	BaseURL          string    `gorm:"column:base_url;type:text;not null;default:''"`
+	Model            string    `gorm:"column:model;type:varchar(120);not null;default:''"`
+	EmbeddingModel   string    `gorm:"column:embedding_model;type:varchar(120);not null;default:''"`
+	APIKeyCiphertext []byte    `gorm:"column:api_key_ciphertext;type:bytea"`
+	APIKeyNonce      []byte    `gorm:"column:api_key_nonce;type:bytea"`
+	CreatedAt        time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt        time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (UserAISettings) TableName() string {
+	return "user_ai_settings"
+}
+
 type EmbeddingRecord struct {
 	ID          int64
 	UserID      int64
@@ -100,4 +117,17 @@ type DigestRecord struct {
 	ErrorMessage  string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type UserAISettingsRecord struct {
+	ID               int64
+	UserID           int64
+	Provider         string
+	BaseURL          string
+	Model            string
+	EmbeddingModel   string
+	APIKeyCiphertext []byte
+	APIKeyNonce      []byte
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
