@@ -149,10 +149,10 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("database.host", "localhost")
 	v.SetDefault("database.port", 5432)
-	v.SetDefault("database.user", "contentflow")
+	v.SetDefault("database.username", "contentflow")
 	v.SetDefault("database.password", "contentflow")
 	v.SetDefault("database.dbname", "contentflow")
-	v.SetDefault("database.ssl_mode", "disable")
+	v.SetDefault("database.sslmode", "disable")
 	v.SetDefault("database.max_open_conns", 25)
 	v.SetDefault("database.max_idle_conns", 5)
 	v.SetDefault("database.conn_max_lifetime", "30m")

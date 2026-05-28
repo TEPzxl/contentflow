@@ -40,6 +40,27 @@ auth:
 	}
 }
 
+func TestLoadAppliesDatabaseDefaults(t *testing.T) {
+	path := writeTempConfig(t, `
+app:
+  env: dev
+auth:
+  jwt_secret: default secret
+`)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Database.Username != "contentflow" {
+		t.Fatalf("Database.Username = %q, want contentflow", cfg.Database.Username)
+	}
+	if cfg.Database.SSLMode != "disable" {
+		t.Fatalf("Database.SSLMode = %q, want disable", cfg.Database.SSLMode)
+	}
+}
+
 func writeTempConfig(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
