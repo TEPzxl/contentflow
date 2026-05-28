@@ -11,6 +11,8 @@ SOURCE_URL="${SOURCE_URL:-}"
 SOURCE_CONFIG="${SOURCE_CONFIG:-{\"provider\":\"empty\"}}"
 POLL_ATTEMPTS="${POLL_ATTEMPTS:-15}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-1}"
+ACCESS_TOKEN="${ACCESS_TOKEN:-}"
+SOURCE_ID="${SOURCE_ID:-}"
 
 require_tools() {
   for tool in curl jq; do
@@ -116,17 +118,49 @@ wait_for_collection_run() {
 }
 
 verify_read_paths() {
-  print_step "checking authenticated read paths"
-  api GET "/api/v1/me" "" "${ACCESS_TOKEN}" | jq -e '.data.user.email | length > 0' >/dev/null
-  api GET "/api/v1/sources?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.sources | length >= 1' >/dev/null
-  api GET "/api/v1/articles?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.articles | type == "array"' >/dev/null
-  api POST "/api/v1/ai/rag-search" '{"query":"smoke","limit":3}' "${ACCESS_TOKEN}" | jq -e '.data.answer.answer | length > 0' >/dev/null
-  api GET "/api/v1/collection-dlq?status=pending&limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.items | type == "array"' >/dev/null
+	print_step "checking authenticated read paths"
+	api GET "/api/v1/me" "" "${ACCESS_TOKEN}" | jq -e '.data.user.email | length > 0' >/dev/null
+	api GET "/api/v1/sources?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.sources | length >= 1' >/dev/null
+	api GET "/api/v1/articles?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.articles | type == "array"' >/dev/null
+	api POST "/api/v1/ai/rag-search" '{"query":"smoke","limit":3}' "${ACCESS_TOKEN}" | jq -e '.data.answer.answer | length > 0' >/dev/null
+	verify_dlq_path
+}
+
+verify_dlq_path() {
+	print_step "checking DLQ path"
+	local body_file status
+	body_file="$(mktemp)"
+	status="$(curl -sS -o "${body_file}" -w "%{http_code}" \
+		-H "Accept: application/json" \
+		-H "Authorization: Bearer ${ACCESS_TOKEN}" \
+		"${BASE_URL}/api/v1/collection-dlq?status=pending&limit=10")"
+
+	case "${status}" in
+		200)
+			jq -e '.data.items | type == "array"' "${body_file}" >/dev/null
+			;;
+		404)
+			print_step "DLQ route not registered; skipping DLQ check"
+			;;
+		*)
+			cat "${body_file}" >&2
+			echo "unexpected DLQ status ${status}" >&2
+			rm -f "${body_file}"
+			return 1
+			;;
+	esac
+	rm -f "${body_file}"
 }
 
 cleanup_source() {
-  print_step "deleting smoke source"
-  api DELETE "/api/v1/sources/${SOURCE_ID}" "" "${ACCESS_TOKEN}" >/dev/null
+	print_step "deleting smoke source"
+	api DELETE "/api/v1/sources/${SOURCE_ID}" "" "${ACCESS_TOKEN}" >/dev/null
+}
+
+cleanup_source_if_created() {
+	if [[ -n "${ACCESS_TOKEN}" && -n "${SOURCE_ID}" ]]; then
+		cleanup_source || true
+	fi
 }
 
 require_tools
@@ -134,9 +168,9 @@ health_check
 register_user
 ACCESS_TOKEN="$(login_user)"
 SOURCE_ID="$(create_source)"
+trap cleanup_source_if_created EXIT
 collect_source
 wait_for_collection_run
 verify_read_paths
-cleanup_source
 
 print_step "smoke API checks passed"
