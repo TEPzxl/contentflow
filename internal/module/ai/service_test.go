@@ -121,6 +121,25 @@ func TestService_SimilarArticlesUsesUserScopedEmbeddings(t *testing.T) {
 	}
 }
 
+func TestService_SimilarArticlesUsesGeneratedEmbeddingModel(t *testing.T) {
+	repo := newFakeRepository()
+	repo.embeddings = []EmbeddingRecord{
+		{ID: 2, UserID: 10, ArticleID: 2, Model: "fake-embedding", Version: DefaultEmbeddingVersion, Embedding: []float64{1, 0}},
+	}
+	articles := newFakeArticleRepository()
+	articles.rows[1] = article.ArticleWithState{ID: 1, Title: "Target", Content: "Semantic target"}
+	articles.rows[2] = article.ArticleWithState{ID: 2, Title: "Generated model hit", Summary: "Semantic neighbor"}
+
+	service := NewService(repo, articles, fakeAssistant{embedding: []float64{1, 0}})
+	result, err := service.SimilarArticles(context.Background(), SimilarArticlesRequest{UserID: 10, ArticleID: 1, Limit: 5})
+	if err != nil {
+		t.Fatalf("SimilarArticles() error = %v", err)
+	}
+	if len(result) != 1 || result[0].ArticleID != 2 {
+		t.Fatalf("similar result = %#v, want article 2 from generated embedding model", result)
+	}
+}
+
 func TestService_RAGSearchReturnsCitations(t *testing.T) {
 	repo := newFakeRepository()
 	articles := newFakeArticleRepository()
@@ -136,8 +155,29 @@ func TestService_RAGSearchReturnsCitations(t *testing.T) {
 	}
 }
 
+func TestService_RAGSearchUsesEmbeddingRetrievalWhenAvailable(t *testing.T) {
+	repo := newFakeRepository()
+	repo.embeddings = []EmbeddingRecord{
+		{ID: 1, UserID: 10, ArticleID: 1, Model: "fake-embedding", Version: "embedding-v1", Embedding: []float64{0, 1}},
+		{ID: 2, UserID: 10, ArticleID: 2, Model: "fake-embedding", Version: "embedding-v1", Embedding: []float64{1, 0}},
+	}
+	articles := newFakeArticleRepository()
+	articles.rows[1] = article.ArticleWithState{ID: 1, Title: "Unrelated", Summary: "Other topic"}
+	articles.rows[2] = article.ArticleWithState{ID: 2, Title: "Vector hit", Summary: "Semantic answer"}
+
+	service := NewService(repo, articles, fakeAssistant{embedding: []float64{1, 0}})
+	result, err := service.RAGSearch(context.Background(), RAGSearchRequest{UserID: 10, Query: "semantic", Limit: 1})
+	if err != nil {
+		t.Fatalf("RAGSearch() error = %v", err)
+	}
+	if len(result.Citations) != 1 || result.Citations[0].ArticleID != 2 {
+		t.Fatalf("citations = %#v, want article 2 from embedding retrieval", result.Citations)
+	}
+}
+
 type fakeAssistant struct {
 	summarizeErr error
+	embedding    []float64
 }
 
 func (a fakeAssistant) Summarize(context.Context, ArticleInput) (SummaryResult, error) {
@@ -148,7 +188,11 @@ func (a fakeAssistant) Summarize(context.Context, ArticleInput) (SummaryResult, 
 }
 
 func (a fakeAssistant) Embed(context.Context, string) (EmbeddingResult, error) {
-	return EmbeddingResult{Model: DefaultEmbeddingModel, Version: DefaultEmbeddingVersion, Dimensions: 2, Vector: []float64{1, 0}}, nil
+	vector := a.embedding
+	if vector == nil {
+		vector = []float64{1, 0}
+	}
+	return EmbeddingResult{Model: "fake-embedding", Version: DefaultEmbeddingVersion, Dimensions: len(vector), Vector: vector}, nil
 }
 
 func (a fakeAssistant) Digest(context.Context, []ArticleInput) (DigestResult, error) {

@@ -174,7 +174,11 @@ func Run() error {
 	)
 	articleHandler := article.NewHandler(articleService)
 	aiRepo := ai.NewRepository(db)
-	aiService := ai.NewService(aiRepo, articleRepo, ai.NewExtractiveAssistant())
+	assistant, err := newConfiguredAssistant(cfg.AI, log)
+	if err != nil {
+		return err
+	}
+	aiService := ai.NewService(aiRepo, articleRepo, assistant)
 	aiHandler := ai.NewHandler(aiService)
 	aiSummaryWorker := ai.NewSummaryWorker(aiService, ai.WithWorkerLogger(log))
 

@@ -63,3 +63,11 @@ auth:
   refresh_token_ttl: 168h
   jwt_secret: dev-only-insecure-jwt-secret-change-me
   jwt_issuer: contentflow
+
+ai:
+  provider: local
+  base_url: https://api.openai.com/v1
+  api_key: ""
+  model: ""
+  embedding_model: text-embedding-3-small
+  timeout: 30s

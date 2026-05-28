@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -22,6 +23,16 @@ type Config struct {
 	RateLimit     RateLimitConfig     `mapstructure:"rate_limit"`
 	Cache         CacheConfig         `mapstructure:"cache"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
+	AI            AIConfig            `mapstructure:"ai"`
+}
+
+type AIConfig struct {
+	Provider       string        `mapstructure:"provider"`
+	BaseURL        string        `mapstructure:"base_url"`
+	APIKey         string        `mapstructure:"api_key"`
+	Model          string        `mapstructure:"model"`
+	EmbeddingModel string        `mapstructure:"embedding_model"`
+	Timeout        time.Duration `mapstructure:"timeout"`
 }
 
 type ObservabilityConfig struct {
@@ -108,6 +119,10 @@ func PathFromEnv(defaultPath string) string {
 }
 
 func Load(path string) (*Config, error) {
+	if err := loadDotEnv(".env"); err != nil {
+		return nil, err
+	}
+
 	v := viper.New()
 
 	v.SetConfigFile(path)
@@ -118,6 +133,7 @@ func Load(path string) (*Config, error) {
 	v.AutomaticEnv()
 
 	setDefaults(v)
+	applyLegacyAIEnv(v)
 
 	var cfg Config
 	if err := v.ReadInConfig(); err != nil {
@@ -187,6 +203,66 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.refresh_token_ttl", "168h")
 	v.SetDefault("auth.jwt_secret", "default secret")
 	v.SetDefault("auth.jwt_issuer", "contentflow")
+
+	v.SetDefault("ai.provider", "local")
+	v.SetDefault("ai.base_url", "https://api.openai.com/v1")
+	v.SetDefault("ai.api_key", "")
+	v.SetDefault("ai.model", "")
+	v.SetDefault("ai.embedding_model", "text-embedding-3-small")
+	v.SetDefault("ai.timeout", "30s")
+}
+
+func applyLegacyAIEnv(v *viper.Viper) {
+	if value := strings.TrimSpace(os.Getenv("base_url")); value != "" {
+		v.Set("ai.base_url", value)
+	}
+	if value := strings.TrimSpace(os.Getenv("API_KEY")); value != "" {
+		v.Set("ai.api_key", value)
+		if strings.TrimSpace(v.GetString("ai.provider")) == "local" {
+			v.Set("ai.provider", "openai")
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("model")); value != "" {
+		v.Set("ai.model", value)
+	}
+}
+
+func loadDotEnv(path string) error {
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open .env: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		if key == "" {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("set .env key %s: %w", key, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read .env: %w", err)
+	}
+	return nil
 }
 
 func validateSecurity(cfg Config) error {

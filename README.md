@@ -69,6 +69,18 @@ docker compose -f deployments/docker-compose.yaml up -d postgres redis kafka mig
 CONTENTFLOW_CONFIG=configs/config.yaml go run ./cmd/server
 ```
 
+### 本地外部 AI
+
+默认 AI provider 是 `local`，使用内置 extractive assistant，不需要外部密钥。本地开发要接真实 OpenAI-compatible API 时，在 `.env` 中设置：
+
+```fish
+API_KEY=<your-api-key>
+base_url=https://api.openai.com/v1
+model=<chat-model>
+```
+
+也可以使用正式环境变量 `CONTENTFLOW_AI_API_KEY`、`CONTENTFLOW_AI_BASE_URL`、`CONTENTFLOW_AI_MODEL`。有 API key 时后端会启用 OpenAI-compatible chat completions 和 embeddings；密钥只从本地环境读取，不会写入仓库。生产形态下 AI 设置应由用户在页面中管理，本地 `.env` 仅用于开发阶段。
+
 ## 前端启动
 
 ```fish

@@ -162,10 +162,11 @@ func (s *Service) SimilarArticles(ctx context.Context, req SimilarArticlesReques
 	limit := normalizeLimit(req.Limit, 5, 20)
 	target, err := s.repo.FindEmbedding(ctx, req.UserID, req.ArticleID, DefaultEmbeddingModel, DefaultEmbeddingVersion)
 	if errors.Is(err, ErrEmbeddingNotFound) {
-		if _, genErr := s.GenerateEmbedding(ctx, GenerateEmbeddingRequest{UserID: req.UserID, ArticleID: req.ArticleID}); genErr != nil {
+		generated, genErr := s.GenerateEmbedding(ctx, GenerateEmbeddingRequest{UserID: req.UserID, ArticleID: req.ArticleID})
+		if genErr != nil {
 			return nil, genErr
 		}
-		target, err = s.repo.FindEmbedding(ctx, req.UserID, req.ArticleID, DefaultEmbeddingModel, DefaultEmbeddingVersion)
+		target, err = s.repo.FindEmbedding(ctx, req.UserID, req.ArticleID, generated.Model, generated.Version)
 	}
 	if err != nil {
 		return nil, err
@@ -258,6 +259,22 @@ func (s *Service) RAGSearch(ctx context.Context, req RAGSearchRequest) (*RAGAnsw
 		return nil, ErrEmptyQuery
 	}
 	limit := normalizeLimit(req.Limit, 5, 12)
+
+	if inputs, err := s.embeddingRAGInputs(ctx, req.UserID, query, limit); err != nil {
+		return nil, err
+	} else if len(inputs) > 0 {
+		result, err := s.assistant.Answer(ctx, query, inputs)
+		if err != nil {
+			return nil, fmt.Errorf("generate rag answer: %w", err)
+		}
+		return &RAGAnswerDTO{
+			Model:         result.Model,
+			PromptVersion: result.PromptVersion,
+			Answer:        result.Answer,
+			Citations:     result.Citations,
+		}, nil
+	}
+
 	rows, _, err := s.articles.ListByUser(ctx, article.ListArticlesParams{
 		UserID: req.UserID,
 		Query:  query,
@@ -281,6 +298,44 @@ func (s *Service) RAGSearch(ctx context.Context, req RAGSearchRequest) (*RAGAnsw
 		Answer:        result.Answer,
 		Citations:     result.Citations,
 	}, nil
+}
+
+func (s *Service) embeddingRAGInputs(ctx context.Context, userID int64, query string, limit int) ([]ArticleInput, error) {
+	queryEmbedding, err := s.assistant.Embed(ctx, query)
+	if err != nil {
+		return nil, nil
+	}
+	records, err := s.repo.ListEmbeddingsByUser(ctx, userID, queryEmbedding.Model, queryEmbedding.Version, 500)
+	if err != nil {
+		return nil, fmt.Errorf("list rag embeddings: %w", err)
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+
+	scored := make([]similarScore, 0, len(records))
+	for _, record := range records {
+		score := cosineSimilarity(queryEmbedding.Vector, record.Embedding)
+		if score > 0 {
+			scored = append(scored, similarScore{ArticleID: record.ArticleID, Score: score})
+		}
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].Score > scored[j].Score
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+
+	inputs := make([]ArticleInput, 0, len(scored))
+	for _, item := range scored {
+		row, err := s.articles.FindByUserAndID(ctx, userID, item.ArticleID)
+		if err != nil {
+			continue
+		}
+		inputs = append(inputs, articleInput(row))
+	}
+	return inputs, nil
 }
 
 func (s *Service) nextAttempt(attempts int) time.Time {

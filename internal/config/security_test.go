@@ -93,6 +93,46 @@ auth:
 	}
 }
 
+func TestLoadAppliesLocalDotEnvAIAliases(t *testing.T) {
+	unsetEnv(t, "API_KEY", "base_url", "model")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("API_KEY=test-key\nbase_url=http://ai.local/v1\nmodel=test-chat\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get wd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	path := writeTempConfig(t, `
+app:
+  env: dev
+auth:
+  jwt_secret: default secret
+`)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.AI.APIKey != "test-key" {
+		t.Fatalf("AI.APIKey = %q, want test-key", cfg.AI.APIKey)
+	}
+	if cfg.AI.BaseURL != "http://ai.local/v1" {
+		t.Fatalf("AI.BaseURL = %q, want http://ai.local/v1", cfg.AI.BaseURL)
+	}
+	if cfg.AI.Model != "test-chat" {
+		t.Fatalf("AI.Model = %q, want test-chat", cfg.AI.Model)
+	}
+}
+
 func writeTempConfig(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
@@ -100,4 +140,27 @@ func writeTempConfig(t *testing.T, body string) string {
 		t.Fatalf("write temp config: %v", err)
 	}
 	return path
+}
+
+func unsetEnv(t *testing.T, keys ...string) {
+	t.Helper()
+	original := make(map[string]*string, len(keys))
+	for _, key := range keys {
+		if value, ok := os.LookupEnv(key); ok {
+			copied := value
+			original[key] = &copied
+		}
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unset %s: %v", key, err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, key := range keys {
+			if value, ok := original[key]; ok {
+				_ = os.Setenv(key, *value)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		}
+	})
 }
