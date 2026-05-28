@@ -19,7 +19,8 @@ func NewDLQHandler(service *DLQService) *DLQHandler {
 }
 
 func (h *DLQHandler) List(c *gin.Context) {
-	if !authenticated(c) {
+	userID, ok := authenticatedUserID(c)
+	if !ok {
 		return
 	}
 
@@ -35,6 +36,7 @@ func (h *DLQHandler) List(c *gin.Context) {
 	}
 
 	result, _, err := h.service.List(c.Request.Context(), ListDLQItemsRequest{
+		UserID: userID,
 		Status: c.Query("status"),
 		Limit:  limit,
 		Offset: offset,
@@ -52,7 +54,8 @@ func (h *DLQHandler) List(c *gin.Context) {
 }
 
 func (h *DLQHandler) Replay(c *gin.Context) {
-	if !authenticated(c) {
+	userID, ok := authenticatedUserID(c)
+	if !ok {
 		return
 	}
 
@@ -62,7 +65,7 @@ func (h *DLQHandler) Replay(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.Replay(c.Request.Context(), ReplayDLQItemRequest{ID: id})
+	result, err := h.service.Replay(c.Request.Context(), ReplayDLQItemRequest{UserID: userID, ID: id})
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -71,7 +74,8 @@ func (h *DLQHandler) Replay(c *gin.Context) {
 }
 
 func (h *DLQHandler) MarkHandled(c *gin.Context) {
-	if !authenticated(c) {
+	userID, ok := authenticatedUserID(c)
+	if !ok {
 		return
 	}
 
@@ -81,7 +85,7 @@ func (h *DLQHandler) MarkHandled(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.MarkHandled(c.Request.Context(), MarkDLQHandledRequest{ID: id})
+	result, err := h.service.MarkHandled(c.Request.Context(), MarkDLQHandledRequest{UserID: userID, ID: id})
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -98,12 +102,13 @@ func (h *DLQHandler) handleError(c *gin.Context, err error) {
 	}
 }
 
-func authenticated(c *gin.Context) bool {
-	if _, ok := requestctx.UserID(c.Request.Context()); !ok {
+func authenticatedUserID(c *gin.Context) (int64, bool) {
+	userID, ok := requestctx.UserID(c.Request.Context())
+	if !ok {
 		response.Error(c, http.StatusUnauthorized, "unauthorized", "missing user context")
-		return false
+		return 0, false
 	}
-	return true
+	return userID, true
 }
 
 func parseDLQIDParam(c *gin.Context) (int64, error) {

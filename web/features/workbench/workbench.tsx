@@ -10,9 +10,10 @@ import { SourceManager } from "@/features/sources/source-manager";
 import { ArticleWorkspace } from "@/features/articles/article-workspace";
 import { AIPanel } from "@/features/ai/ai-panel";
 import { CollectionRunPanel } from "@/features/collection-runs/collection-run-panel";
+import { DLQPanel } from "@/features/dlq/dlq-panel";
 import { Badge, Button, ErrorBanner } from "@/components/ui";
 
-type View = "articles" | "sources" | "runs" | "ai" | "settings";
+type View = "articles" | "sources" | "runs" | "dlq" | "ai" | "settings";
 
 export function Workbench() {
   const [session, setSession] = useState<SessionSnapshot | null>(() => readSession());
@@ -77,6 +78,7 @@ export function Workbench() {
             ["articles", "文章"] as const,
             ["sources", "来源"] as const,
             ["runs", "采集记录"] as const,
+            ["dlq", "DLQ"] as const,
             ["ai", "AI"] as const,
             ["settings", "设置"] as const
           ].map(([id, label]) => (
@@ -119,6 +121,7 @@ export function Workbench() {
           {view === "runs" ? (
             <CollectionRunPanel source={selectedSource} latestRun={latestRun} onSelectSource={setSelectedSourceID} sources={sources} />
           ) : null}
+          {view === "dlq" ? <DLQPanel /> : null}
           {view === "ai" ? <AIPanel /> : null}
           {view === "settings" ? (
             <section className="rounded-lg border border-slate-200 bg-white p-4">

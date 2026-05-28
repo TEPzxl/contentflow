@@ -6,8 +6,10 @@ import type {
   ArticleEmbedding,
   ArticleSummary,
   AuthTokens,
+  CollectSourceResult,
   CollectionRun,
   DailyDigest,
+  DLQItem,
   ListResponse,
   LoginPayload,
   RAGAnswer,
@@ -124,8 +126,11 @@ export const api = {
   updateSource(id: number, payload: SourceUpdatePayload) {
     return request<{ source: Source }>(`/sources/${id}`, { method: "PATCH", body: payload });
   },
+  deleteSource(id: number) {
+    return request<{ message: string }>(`/sources/${id}`, { method: "DELETE" });
+  },
   collectSource(id: number) {
-    return request<{ collection_run: CollectionRun }>(`/sources/${id}/collect`, { method: "POST" });
+    return request<CollectSourceResult>(`/sources/${id}/collect`, { method: "POST" });
   },
   listCollectionRuns(sourceID: number, params: { status?: string; limit?: number; offset?: number } = {}) {
     return request<ListResponse<CollectionRun, "collection_runs">>(
@@ -180,6 +185,15 @@ export const api = {
   },
   ragSearch(payload: { query: string; limit?: number }) {
     return request<{ answer: RAGAnswer }>("/ai/rag-search", { method: "POST", body: payload });
+  },
+  listDLQ(params: { status?: string; limit?: number; offset?: number } = {}) {
+    return request<ListResponse<DLQItem, "items">>(withQuery("/collection-dlq", params));
+  },
+  replayDLQItem(id: number) {
+    return request<{ item: DLQItem }>(`/collection-dlq/${id}/replay`, { method: "POST" });
+  },
+  markDLQItemHandled(id: number) {
+    return request<{ item: DLQItem }>(`/collection-dlq/${id}/handled`, { method: "POST" });
   }
 };
 
@@ -199,6 +213,7 @@ export function humanizeAPIError(error: unknown) {
     summary_not_found: "摘要尚未生成",
     embedding_not_found: "向量尚未生成",
     digest_not_found: "日报尚未生成",
+    dlq_item_not_found: "DLQ 记录不存在或无权访问",
     empty_query: "请输入搜索问题",
     rate_limited: "操作过于频繁，请稍后再试"
   };

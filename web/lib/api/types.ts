@@ -91,6 +91,32 @@ export type CollectionRun = {
   error_message: string;
 };
 
+export type CollectionTask = {
+  task_id: string;
+  source_id: number;
+  status: string;
+};
+
+export type CollectSourceResult = {
+  collection_run?: CollectionRun;
+  collection_task?: CollectionTask;
+};
+
+export type DLQItem = {
+  id: number;
+  task_id: string;
+  user_id: number;
+  source_id: number;
+  idempotency_key: string;
+  attempt: number;
+  error_message: string;
+  status: "pending" | "replayed" | "handled" | string;
+  created_at: string;
+  updated_at: string;
+  replayed_at?: string | null;
+  handled_at?: string | null;
+};
+
 export type ArticleSummary = {
   id: number;
   article_id: number;

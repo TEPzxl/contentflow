@@ -110,6 +110,14 @@ scripts/validate_k8s.sh
 scripts/validate_ci.sh
 ```
 
+后端已运行时，可以跑 API 冒烟测试：
+
+```fish
+scripts/ci.sh smoke-api
+```
+
+默认会创建一个临时用户和一个 `email` / `empty` source，验证健康检查、认证、source、采集、collection run、article 列表、RAG 搜索和 DLQ 列表接口。
+
 CI 覆盖后端测试、覆盖率、OpenAPI、Kubernetes 渲染校验、前端 audit/typecheck/lint/test/build 和 Docker 镜像发布 workflow 校验。
 
 ## 部署方式
