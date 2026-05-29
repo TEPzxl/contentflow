@@ -40,6 +40,77 @@ func TestWorker_RunDoesNotCommitFailedHandling(t *testing.T) {
 	}
 }
 
+func TestWorker_HandleMessageRejectsInvalidPayload(t *testing.T) {
+	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		value []byte
+	}{
+		{
+			name:  "missing task id",
+			value: marshalJSON(t, CollectionRequested{UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:42", RequestedAt: now}),
+		},
+		{
+			name:  "missing user id",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", SourceID: 42, IdempotencyKey: "collection:source:42", RequestedAt: now}),
+		},
+		{
+			name:  "missing source id",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, IdempotencyKey: "collection:source:42", RequestedAt: now}),
+		},
+		{
+			name:  "missing idempotency key",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, RequestedAt: now}),
+		},
+		{
+			name:  "negative attempt",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:42", Attempt: -1, RequestedAt: now}),
+		},
+		{
+			name:  "missing requested at",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:42"}),
+		},
+		{
+			name:  "message key does not match idempotency key",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:99", RequestedAt: now}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writer := &fakeEventWriter{}
+			service := &fakeCollectionService{}
+			repo := newMemoryJobExecutionRepository()
+			worker := NewWorker(
+				nil,
+				writer,
+				service,
+				WithWorkerNow(func() time.Time { return now }),
+				WithJobExecutionRepository(repo),
+			)
+
+			err := worker.HandleMessage(context.Background(), Message{
+				Topic: TopicCollectionRequested,
+				Key:   []byte("collection:source:42"),
+				Value: tt.value,
+			})
+			if !errors.Is(err, ErrInvalidMessage) {
+				t.Fatalf("HandleMessage() error = %v, want %v", err, ErrInvalidMessage)
+			}
+			if repo.claims != 0 {
+				t.Fatalf("claim calls = %d, want 0", repo.claims)
+			}
+			if len(service.reqs) != 0 {
+				t.Fatalf("service calls = %d, want 0", len(service.reqs))
+			}
+			if len(writer.events) != 0 {
+				t.Fatalf("written events = %d, want 0", len(writer.events))
+			}
+		})
+	}
+}
+
 func TestWorker_HandleMessage(t *testing.T) {
 	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
 

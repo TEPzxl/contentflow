@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/tepzxl/contentflow/internal/module/collector"
@@ -155,6 +156,9 @@ func (w *Worker) HandleMessage(ctx context.Context, msg Message) error {
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidMessage, err)
 	}
+	if err := validateCollectionRequestedMessage(msg, event); err != nil {
+		return err
+	}
 
 	if err := w.waitUntilNextAttempt(ctx, event); err != nil {
 		return err
@@ -196,6 +200,34 @@ func (w *Worker) HandleMessage(ctx context.Context, msg Message) error {
 		return err
 	}
 	return w.markExecutionSucceeded(ctx, event.TaskID, claimID, resp.RunID)
+}
+
+func validateCollectionRequestedMessage(msg Message, event CollectionRequested) error {
+	if msg.Topic != "" && msg.Topic != TopicCollectionRequested {
+		return fmt.Errorf("%w: unexpected topic %q", ErrInvalidMessage, msg.Topic)
+	}
+	if strings.TrimSpace(event.TaskID) == "" {
+		return fmt.Errorf("%w: missing task_id", ErrInvalidMessage)
+	}
+	if event.UserID <= 0 {
+		return fmt.Errorf("%w: invalid user_id", ErrInvalidMessage)
+	}
+	if event.SourceID <= 0 {
+		return fmt.Errorf("%w: invalid source_id", ErrInvalidMessage)
+	}
+	if strings.TrimSpace(event.IdempotencyKey) == "" {
+		return fmt.Errorf("%w: missing idempotency_key", ErrInvalidMessage)
+	}
+	if event.Attempt < 0 {
+		return fmt.Errorf("%w: invalid attempt", ErrInvalidMessage)
+	}
+	if event.RequestedAt.IsZero() {
+		return fmt.Errorf("%w: missing requested_at", ErrInvalidMessage)
+	}
+	if len(msg.Key) > 0 && string(msg.Key) != event.IdempotencyKey {
+		return fmt.Errorf("%w: message key does not match idempotency_key", ErrInvalidMessage)
+	}
+	return nil
 }
 
 func (w *Worker) claimExecution(ctx context.Context, event CollectionRequested) (string, bool, error) {
