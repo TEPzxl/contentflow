@@ -30,6 +30,11 @@ export function AuthPanel({
     setError("");
   }
 
+  function switchMode(nextMode: AuthMode) {
+    resetForMode(nextMode);
+    window.history.replaceState(null, "", nextMode === "register" ? "/?auth=register" : "/?auth=login");
+  }
+
   useEffect(() => {
     resetForMode(initialMode);
   }, [initialMode]);
@@ -93,7 +98,10 @@ export function AuthPanel({
           <a
             className="font-medium text-blue-700 underline-offset-4 hover:text-blue-800 hover:underline"
             href={mode === "login" ? "/?auth=register" : "/?auth=login"}
-            onClick={() => resetForMode(mode === "login" ? "register" : "login")}
+            onClick={(event) => {
+              event.preventDefault();
+              switchMode(mode === "login" ? "register" : "login");
+            }}
           >
             {mode === "login" ? "还没有账号？" : "已有账号？"}
           </a>
