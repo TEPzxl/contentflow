@@ -16,7 +16,7 @@ Set `NEXT_PUBLIC_CONTENTFLOW_API_BASE_URL` when the backend is not running at `h
 
 ## E2E tests
 
-Playwright is configured to use one worker by default to keep local CPU and memory usage low. Local runs keep tracing off; CI records traces only on the first retry.
+Playwright is configured to use one worker by default to keep local CPU and memory usage low. Local runs keep tracing off; CI records traces only on the first retry. The Playwright-managed dev server uses Next.js webpack dev mode with source maps and server Fast Refresh disabled to avoid Turbopack CPU spikes during E2E startup.
 
 Use `--list` for a safe discovery check without running the full browser test suite:
 
