@@ -70,9 +70,9 @@ case "${cmd}" in
     go test -count=1 -p=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
     ;;
   docker-build)
-    GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \
+    GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
       docker compose -f deployments/docker-compose.yaml build \
-      --build-arg GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \
+      --build-arg GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
       backend
     docker compose -f deployments/docker-compose.yaml build frontend
     ;;

@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: deployments/Dockerfile
       args:
-        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
     container_name: contentflow_backend
     environment:
       CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
