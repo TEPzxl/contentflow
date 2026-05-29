@@ -18,7 +18,7 @@ type View = "articles" | "sources" | "runs" | "dlq" | "ai" | "settings";
 type AuthMode = "login" | "register";
 
 export function Workbench({ initialAuthMode = "login" }: { initialAuthMode?: AuthMode }) {
-  const [session, setSession] = useState<SessionSnapshot | null>(() => readSession());
+  const [session, setSession] = useState<SessionSnapshot | null>(null);
   const [view, setView] = useState<View>("articles");
   const [sources, setSources] = useState<Source[]>([]);
   const [selectedSourceID, setSelectedSourceID] = useState<number | null>(null);
@@ -43,6 +43,10 @@ export function Workbench({ initialAuthMode = "login" }: { initialAuthMode?: Aut
     () => sources.find((source) => source.id === selectedSourceID) ?? null,
     [selectedSourceID, sources]
   );
+
+  useEffect(() => {
+    setSession(readSession());
+  }, []);
 
   function logout() {
     void api.logout().catch(() => undefined);
