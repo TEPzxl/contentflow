@@ -417,6 +417,48 @@ func TestService_GetAISettingsRedactsEncryptedAPIKey(t *testing.T) {
 	}
 }
 
+func TestService_UpdateAISettingsValidatesInputBeforeAPIKeyEncryption(t *testing.T) {
+	apiKey := "sk-test"
+	tests := []struct {
+		name    string
+		req     UpdateAISettingsRequest
+		wantErr error
+	}{
+		{
+			name: "missing openai model",
+			req: UpdateAISettingsRequest{
+				UserID:   10,
+				Provider: "openai-compatible",
+				BaseURL:  "https://example.com/v1",
+				APIKey:   &apiKey,
+			},
+			wantErr: ErrInvalidAIModel,
+		},
+		{
+			name: "unsafe base url",
+			req: UpdateAISettingsRequest{
+				UserID:   10,
+				Provider: "openai-compatible",
+				BaseURL:  "http://127.0.0.1:8080/v1",
+				Model:    "chat-model",
+				APIKey:   &apiKey,
+			},
+			wantErr: ErrInvalidAIBaseURL,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewService(newFakeRepository(), newFakeArticleRepository(), fakeAssistant{})
+
+			_, err := service.UpdateAISettings(context.Background(), tt.req)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("UpdateAISettings() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestService_UpdateAISettingsRejectsAPIKeyWithoutEncryptionKey(t *testing.T) {
 	service := NewService(newFakeRepository(), newFakeArticleRepository(), fakeAssistant{})
 	apiKey := "sk-test"

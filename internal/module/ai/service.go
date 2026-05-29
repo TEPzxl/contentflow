@@ -145,6 +145,15 @@ func (s *Service) UpdateAISettings(ctx context.Context, req UpdateAISettingsRequ
 		return nil, err
 	}
 
+	baseURL, err := normalizeAIBaseURL(req.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	model := strings.TrimSpace(req.Model)
+	if provider == "openai-compatible" && model == "" {
+		return nil, ErrInvalidAIModel
+	}
+
 	current, err := s.repo.FindAISettings(ctx, req.UserID)
 	if err != nil && !errors.Is(err, ErrAISettingsNotFound) {
 		return nil, err
@@ -171,15 +180,6 @@ func (s *Service) UpdateAISettings(ctx context.Context, req UpdateAISettingsRequ
 				return nil, fmt.Errorf("encrypt ai api key: %w", err)
 			}
 		}
-	}
-
-	baseURL, err := normalizeAIBaseURL(req.BaseURL)
-	if err != nil {
-		return nil, err
-	}
-	model := strings.TrimSpace(req.Model)
-	if provider == "openai-compatible" && model == "" {
-		return nil, ErrInvalidAIModel
 	}
 
 	record, err := s.repo.UpsertAISettings(ctx, UpsertAISettingsParams{
