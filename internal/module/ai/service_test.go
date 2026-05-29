@@ -255,6 +255,85 @@ func TestService_UpdateAISettingsEncryptsAPIKeyAndRedactsResponse(t *testing.T) 
 	}
 }
 
+func TestService_UpdateAISettingsPreservesExistingAPIKeyWhenOmitted(t *testing.T) {
+	repo := newFakeRepository()
+	box := testSecretBox(t)
+	ciphertext, nonce, err := box.EncryptString("sk-existing")
+	if err != nil {
+		t.Fatalf("encrypt api key: %v", err)
+	}
+	repo.aiSettings = &UserAISettingsRecord{
+		UserID:           10,
+		Provider:         "openai-compatible",
+		BaseURL:          "http://ai.local/v1",
+		Model:            "old-chat-model",
+		EmbeddingModel:   "old-embed-model",
+		APIKeyCiphertext: ciphertext,
+		APIKeyNonce:      nonce,
+	}
+	service := NewService(repo, newFakeArticleRepository(), fakeAssistant{}, WithSecretBox(box))
+
+	result, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
+		UserID:         10,
+		Provider:       "openai-compatible",
+		BaseURL:        "http://ai.local/v2",
+		Model:          "new-chat-model",
+		EmbeddingModel: "new-embed-model",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAISettings() error = %v", err)
+	}
+
+	if !result.HasAPIKey {
+		t.Fatal("HasAPIKey = false, want true")
+	}
+	if string(repo.aiSettings.APIKeyCiphertext) != string(ciphertext) || string(repo.aiSettings.APIKeyNonce) != string(nonce) {
+		t.Fatal("stored api key changed when request omitted api_key")
+	}
+	if result.BaseURL != "http://ai.local/v2" || result.Model != "new-chat-model" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestService_UpdateAISettingsClearsAPIKeyWhenEmptyString(t *testing.T) {
+	repo := newFakeRepository()
+	box := testSecretBox(t)
+	ciphertext, nonce, err := box.EncryptString("sk-existing")
+	if err != nil {
+		t.Fatalf("encrypt api key: %v", err)
+	}
+	repo.aiSettings = &UserAISettingsRecord{
+		UserID:           10,
+		Provider:         "openai-compatible",
+		BaseURL:          "http://ai.local/v1",
+		Model:            "chat-model",
+		EmbeddingModel:   "embed-model",
+		APIKeyCiphertext: ciphertext,
+		APIKeyNonce:      nonce,
+	}
+	service := NewService(repo, newFakeArticleRepository(), fakeAssistant{}, WithSecretBox(box))
+	apiKey := ""
+
+	result, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
+		UserID:         10,
+		Provider:       "openai-compatible",
+		BaseURL:        "http://ai.local/v1",
+		Model:          "chat-model",
+		EmbeddingModel: "embed-model",
+		APIKey:         &apiKey,
+	})
+	if err != nil {
+		t.Fatalf("UpdateAISettings() error = %v", err)
+	}
+
+	if result.HasAPIKey {
+		t.Fatal("HasAPIKey = true, want false")
+	}
+	if len(repo.aiSettings.APIKeyCiphertext) != 0 || len(repo.aiSettings.APIKeyNonce) != 0 {
+		t.Fatalf("stored api key fields = %d/%d, want empty", len(repo.aiSettings.APIKeyCiphertext), len(repo.aiSettings.APIKeyNonce))
+	}
+}
+
 func TestService_GetAISettingsRedactsEncryptedAPIKey(t *testing.T) {
 	repo := newFakeRepository()
 	box := testSecretBox(t)
