@@ -57,6 +57,10 @@ function ragPanel(page: Page) {
   return page.locator("section").filter({ has: page.getByRole("heading", { name: "RAG 搜索" }) });
 }
 
+function digestPanel(page: Page) {
+  return page.locator("section").filter({ has: page.getByRole("heading", { name: "Daily Digest" }) });
+}
+
 test("shows rag errors inside the rag panel", async ({ page }) => {
   await mockLoginAndSources(page);
   await page.route("**/api/v1/ai/rag-search", async (route) => {
@@ -131,4 +135,58 @@ test("clears stale rag answer when the next request fails", async ({ page }) => 
 
   await expect(ragPanel(page).getByText("服务端尚未配置 AI 密钥加密 key")).toBeVisible();
   await expect(ragPanel(page).getByText("这是上一轮成功答案")).toBeHidden();
+});
+
+test("clears stale digest when the next digest request fails", async ({ page }) => {
+  await mockLoginAndSources(page);
+  let digestRequests = 0;
+  await page.route("**/api/v1/ai/digests/*", async (route) => {
+    if (await fulfillOptions(route)) {
+      return;
+    }
+    digestRequests += 1;
+    if (digestRequests === 1) {
+      await route.fulfill({
+        headers: corsHeaders,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            digest: {
+              id: 1,
+              digest_date: "2026-05-29",
+              model: "test-model",
+              prompt_version: "digest-v1",
+              summary: "这是上一轮成功日报",
+              article_ids: [1],
+              status: "succeeded",
+              error_message: "",
+              created_at: "2026-05-29T00:00:00Z",
+              updated_at: "2026-05-29T00:00:00Z"
+            }
+          }
+        })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 404,
+      headers: corsHeaders,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "digest_not_found",
+          message: "digest not found"
+        }
+      })
+    });
+  });
+
+  await openAIPanel(page);
+  await page.getByRole("button", { name: "生成" }).click();
+  await expect(digestPanel(page).getByText("这是上一轮成功日报")).toBeVisible();
+
+  await page.getByRole("button", { name: "读取" }).click();
+
+  await expect(digestPanel(page).getByText("日报尚未生成")).toBeVisible();
+  await expect(digestPanel(page).getByText("这是上一轮成功日报")).toBeHidden();
 });

@@ -17,6 +17,7 @@ export function AIPanel() {
 
   async function generateDigest() {
     setDigestError("");
+    setDigest(null);
     setDigestLoading(true);
     try {
       const result = await api.generateDigest(date);
@@ -30,6 +31,7 @@ export function AIPanel() {
 
   async function loadDigest() {
     setDigestError("");
+    setDigest(null);
     setDigestLoading(true);
     try {
       const result = await api.getDigest(date);
