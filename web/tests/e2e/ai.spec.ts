@@ -79,6 +79,7 @@ test("shows ai settings model validation errors in settings panel", async ({
   page,
 }) => {
   await mockAuthenticatedWorkspace(page);
+  let updateRequests = 0;
   await page.route("**/api/v1/ai/settings", async (route) => {
     if (await fulfillOptions(route)) {
       return;
@@ -102,6 +103,7 @@ test("shows ai settings model validation errors in settings panel", async ({
       });
       return;
     }
+    updateRequests += 1;
     await route.fulfill({
       status: 400,
       headers: corsHeaders,
@@ -126,6 +128,7 @@ test("shows ai settings model validation errors in settings panel", async ({
   await expect(
     page.getByText("请填写 OpenAI-compatible 的 Chat model"),
   ).toBeVisible();
+  expect(updateRequests).toBe(0);
 });
 
 test("shows rag errors inside the rag panel", async ({ page }) => {

@@ -66,6 +66,10 @@ export function SettingsPanel({ user }: SettingsPanelProps) {
   async function updateSettings(clearKey: boolean) {
     setError("");
     setNotice("");
+    if (form.provider === "openai-compatible" && !form.model.trim()) {
+      setError("请填写 OpenAI-compatible 的 Chat model");
+      return;
+    }
     setLoading(true);
     try {
       const payload: AISettingsPayload = {
