@@ -43,6 +43,7 @@ export function AIPanel() {
 
   async function ask() {
     setRAGError("");
+    setAnswer(null);
     setRAGLoading(true);
     try {
       const result = await api.ragSearch({ query, limit: 5 });
