@@ -222,6 +222,7 @@ func toCollectedItem(src *source.Source, item *gofeed.Item) (collector.Collected
 	author := authorName(item)
 
 	return collector.CollectedItem{
+		UserID:      src.UserID,
 		SourceID:    src.ID,
 		SourceType:  src.Type,
 		ExternalID:  externalID,

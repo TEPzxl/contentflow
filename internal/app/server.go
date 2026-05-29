@@ -239,7 +239,8 @@ func Run() error {
 		}
 		outboxDispatcher = collectionjob.NewOutboxDispatcher(outboxRepo, kafkaWriter, outboxOptions...)
 		scheduledCollector = jobProducer
-		asyncCollectionHandler := collector.NewAsyncHandler(jobProducer)
+		asyncCollectionRequester := collector.NewSourceValidatingRequester(sourceRepo, jobProducer)
+		asyncCollectionHandler := collector.NewAsyncHandler(asyncCollectionRequester)
 		dlqHandler := collectionjob.NewDLQHandler(collectionjob.NewDLQService(dlqRepo, kafkaWriter))
 		registerCollectionRoutes = func(api *gin.RouterGroup) {
 			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired, collectRateLimit)

@@ -187,6 +187,9 @@ func (s *AuthService) Refresh(ctx context.Context, req RefreshRequest) (*Refresh
 	}
 
 	if err := s.refreshTokenRepo.RevokeByHash(ctx, tokenHash, now); err != nil {
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			return nil, ErrInvalidRefreshToken
+		}
 		return nil, fmt.Errorf("revoke refresh token: %w", err)
 	}
 

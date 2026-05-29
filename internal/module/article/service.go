@@ -57,6 +57,7 @@ func NewService(repo Repository, opts ...Option) *Service {
 
 func (s *Service) SaveCollectedItems(ctx context.Context, items []collector.CollectedItem) (*collector.ArticleWriteResult, error) {
 	result := &collector.ArticleWriteResult{}
+	changedUsers := map[int64]struct{}{}
 
 	for _, item := range items {
 		article, err := s.toArticle(item)
@@ -71,9 +72,15 @@ func (s *Service) SaveCollectedItems(ctx context.Context, items []collector.Coll
 
 		if created {
 			result.InsertedCount++
+			if item.UserID > 0 {
+				changedUsers[item.UserID] = struct{}{}
+			}
 		} else {
 			result.DuplicatedCount++
 		}
+	}
+	for userID := range changedUsers {
+		s.deleteUserListCache(ctx, userID)
 	}
 	return result, nil
 }
@@ -153,13 +160,17 @@ func (s *Service) UpdateState(ctx context.Context, req UpdateArticleStateRequest
 		return nil, err
 	}
 
-	if s.listCache != nil {
-		_ = s.listCache.DeleteUser(ctx, req.UserID)
-	}
+	s.deleteUserListCache(ctx, req.UserID)
 
 	return &UpdateArticleStateResponse{
 		Article: toArticleDTO(row),
 	}, nil
+}
+
+func (s *Service) deleteUserListCache(ctx context.Context, userID int64) {
+	if s.listCache != nil {
+		_ = s.listCache.DeleteUser(ctx, userID)
+	}
 }
 
 func (s *Service) toArticle(item collector.CollectedItem) (*Article, error) {

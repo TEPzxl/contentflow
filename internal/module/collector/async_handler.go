@@ -2,11 +2,13 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tepzxl/contentflow/internal/http/requestctx"
 	"github.com/tepzxl/contentflow/internal/http/response"
+	"github.com/tepzxl/contentflow/internal/module/source"
 )
 
 type CollectionRequester interface {
@@ -39,7 +41,7 @@ func (h *AsyncHandler) RequestCollection(c *gin.Context) {
 		SourceID: sourceID,
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
+		h.handleCollectionRequestError(c, err)
 		return
 	}
 
@@ -52,6 +54,15 @@ func (h *AsyncHandler) RequestCollection(c *gin.Context) {
 			},
 		},
 	})
+}
+
+func (h *AsyncHandler) handleCollectionRequestError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, source.ErrSourceNotAccessible):
+		response.Error(c, http.StatusNotFound, "source_not_found", "source not found")
+	default:
+		response.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
+	}
 }
 
 type requestCollectionHTTPResp struct {

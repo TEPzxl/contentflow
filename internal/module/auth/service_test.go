@@ -496,6 +496,38 @@ func TestAuthService_Refresh(t *testing.T) {
 			},
 			wantErr: auth.ErrInvalidRefreshToken,
 		},
+		{
+			name: "token already consumed before revoke",
+			req: auth.RefreshRequest{
+				RefreshToken: "old-refresh-token",
+			},
+			mock: func(
+				ctx context.Context,
+				userRepo *usermocks.MockRepository,
+				refreshRepo *authmocks.MockRefreshTokenRepository,
+				tokenManager *authmocks.MockTokenManager,
+			) {
+				oldHash := auth.HashRefreshToken("old-refresh-token")
+
+				refreshRepo.EXPECT().
+					FindValidByHash(ctx, oldHash, fixedNow).
+					Return(&auth.RefreshToken{
+						ID:        10,
+						UserID:    1,
+						TokenHash: oldHash,
+						ExpiresAt: fixedNow.Add(7 * 24 * time.Hour),
+					}, nil)
+
+				userRepo.EXPECT().
+					FindByID(ctx, int64(1)).
+					Return(&user.User{ID: 1, Email: "tep@example.com"}, nil)
+
+				refreshRepo.EXPECT().
+					RevokeByHash(ctx, oldHash, fixedNow).
+					Return(auth.ErrRefreshTokenNotFound)
+			},
+			wantErr: auth.ErrInvalidRefreshToken,
+		},
 	}
 
 	for _, tt := range tests {
