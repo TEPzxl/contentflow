@@ -140,7 +140,7 @@ func (r *memoryOutboxRepository) Create(_ context.Context, params CreateOutboxEv
 func (r *memoryOutboxRepository) ListReady(_ context.Context, now time.Time, limit int) ([]OutboxEvent, int64, error) {
 	var events []OutboxEvent
 	for _, event := range r.events {
-		if event.Status != OutboxStatusSent && !event.NextAttemptAt.After(now) {
+		if event.Status != OutboxStatusSent && event.Status != OutboxStatusProcessing && !event.NextAttemptAt.After(now) {
 			events = append(events, event)
 			if len(events) == limit {
 				break
@@ -150,27 +150,60 @@ func (r *memoryOutboxRepository) ListReady(_ context.Context, now time.Time, lim
 	return events, int64(len(events)), nil
 }
 
+func (r *memoryOutboxRepository) ClaimReady(_ context.Context, now time.Time, limit int, claimID string, lockedUntil time.Time) ([]OutboxEvent, int64, error) {
+	var events []OutboxEvent
+	var total int64
+	for id, event := range r.events {
+		ready := (event.Status == OutboxStatusPending || event.Status == OutboxStatusFailed) && !event.NextAttemptAt.After(now)
+		expired := event.Status == OutboxStatusProcessing && !event.LockedUntil.After(now)
+		if !ready && !expired {
+			continue
+		}
+		total++
+		if len(events) == limit {
+			continue
+		}
+		event.Status = OutboxStatusProcessing
+		event.ClaimID = claimID
+		event.LockedUntil = lockedUntil
+		event.UpdatedAt = now
+		r.events[id] = event
+		events = append(events, event)
+	}
+	return events, total, nil
+}
+
 func (r *memoryOutboxRepository) FindByID(_ context.Context, id int64) (*OutboxEvent, error) {
 	event := r.events[id]
 	return &event, nil
 }
 
-func (r *memoryOutboxRepository) MarkSent(_ context.Context, id int64, sentAt time.Time) (*OutboxEvent, error) {
+func (r *memoryOutboxRepository) MarkSent(_ context.Context, id int64, claimID string, sentAt time.Time) (*OutboxEvent, error) {
 	event := r.events[id]
+	if event.Status != OutboxStatusProcessing || event.ClaimID != claimID {
+		return nil, ErrOutboxClaimLost
+	}
 	event.Status = OutboxStatusSent
 	event.SentAt = &sentAt
 	event.UpdatedAt = sentAt
+	event.ClaimID = ""
+	event.LockedUntil = time.Time{}
 	r.events[id] = event
 	return &event, nil
 }
 
-func (r *memoryOutboxRepository) MarkFailed(_ context.Context, id int64, attempts int, nextAttemptAt time.Time, lastError string) (*OutboxEvent, error) {
+func (r *memoryOutboxRepository) MarkFailed(_ context.Context, id int64, claimID string, attempts int, nextAttemptAt time.Time, lastError string) (*OutboxEvent, error) {
 	event := r.events[id]
+	if event.Status != OutboxStatusProcessing || event.ClaimID != claimID {
+		return nil, ErrOutboxClaimLost
+	}
 	event.Status = OutboxStatusFailed
 	event.Attempts = attempts
 	event.NextAttemptAt = nextAttemptAt
 	event.LastError = lastError
 	event.UpdatedAt = nextAttemptAt
+	event.ClaimID = ""
+	event.LockedUntil = time.Time{}
 	r.events[id] = event
 	return &event, nil
 }
