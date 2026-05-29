@@ -75,6 +75,59 @@ function digestPanel(page: Page) {
     .filter({ has: page.getByRole("heading", { name: "Daily Digest" }) });
 }
 
+test("shows ai settings model validation errors in settings panel", async ({
+  page,
+}) => {
+  await mockAuthenticatedWorkspace(page);
+  await page.route("**/api/v1/ai/settings", async (route) => {
+    if (await fulfillOptions(route)) {
+      return;
+    }
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        headers: corsHeaders,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            settings: {
+              provider: "local",
+              base_url: "https://api.openai.com/v1",
+              model: "",
+              embedding_model: "text-embedding-3-small",
+              has_api_key: false,
+              updated_at: "2026-05-29T00:00:00Z",
+            },
+          },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 400,
+      headers: corsHeaders,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: {
+          code: "invalid_ai_model",
+          message: "invalid ai model",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "内容聚合工作台" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByLabel("Provider").selectOption("openai-compatible");
+  await page.getByRole("button", { name: "保存" }).click();
+
+  await expect(
+    page.getByText("请填写 OpenAI-compatible 的 Chat model"),
+  ).toBeVisible();
+});
+
 test("shows rag errors inside the rag panel", async ({ page }) => {
   await mockAuthenticatedWorkspace(page);
   await page.route("**/api/v1/ai/rag-search", async (route) => {

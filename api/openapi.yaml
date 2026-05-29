@@ -275,6 +275,8 @@ paths:
                 $ref: "#/components/schemas/CollectionTaskEnvelope"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
   /api/v1/sources/{id}/collection-runs:
@@ -1367,6 +1369,7 @@ components:
           format: date-time
     UpdateAISettingsRequest:
       type: object
+      description: Returns invalid_ai_base_url for unsafe base_url and invalid_ai_model when provider is openai-compatible without a chat model.
       properties:
         provider:
           type: string
@@ -1375,6 +1378,7 @@ components:
           type: string
         model:
           type: string
+          description: Required when provider is openai-compatible.
         embedding_model:
           type: string
         api_key:

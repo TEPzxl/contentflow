@@ -225,6 +225,8 @@ export function humanizeAPIError(error: unknown) {
     empty_query: "请输入搜索问题",
     ai_settings_encryption_key_required: "服务端尚未配置 AI 密钥加密 key",
     invalid_ai_provider: "不支持该 AI provider",
+    invalid_ai_base_url: "Base URL 不可用或指向不安全地址",
+    invalid_ai_model: "请填写 OpenAI-compatible 的 Chat model",
     rate_limited: "操作过于频繁，请稍后再试"
   };
 
