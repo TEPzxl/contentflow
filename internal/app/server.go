@@ -226,6 +226,7 @@ func Run() error {
 
 		outboxRepo := collectionjob.NewGormOutboxRepository(db)
 		dlqRepo := collectionjob.NewGormDLQRepository(db)
+		jobExecutionRepo := collectionjob.NewGormJobExecutionRepository(db)
 		jobProducer := collectionjob.NewOutboxProducer(outboxRepo)
 		outboxOptions := []collectionjob.OutboxDispatcherOption{
 			collectionjob.WithOutboxLogger(log),
@@ -253,6 +254,7 @@ func Run() error {
 			collectionjob.WithRetryBackoff(cfg.Kafka.RetryBackoff),
 			collectionjob.WithWorkerLogger(log),
 			collectionjob.WithDLQRepository(dlqRepo),
+			collectionjob.WithJobExecutionRepository(jobExecutionRepo),
 		}
 		if metrics != nil {
 			workerOptions = append(workerOptions, collectionjob.WithJobObserver(metrics))
