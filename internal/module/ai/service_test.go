@@ -346,6 +346,19 @@ func TestService_UpdateAISettingsRejectsUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestService_UpdateAISettingsRejectsOpenAICompatibleWithoutModel(t *testing.T) {
+	service := NewService(newFakeRepository(), newFakeArticleRepository(), fakeAssistant{})
+
+	_, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
+		UserID:   10,
+		Provider: "openai-compatible",
+		BaseURL:  "https://example.com/v1",
+	})
+	if !errors.Is(err, ErrInvalidAIModel) {
+		t.Fatalf("UpdateAISettings() error = %v, want ErrInvalidAIModel", err)
+	}
+}
+
 func TestService_UpdateAISettingsRejectsUnsafeBaseURL(t *testing.T) {
 	tests := []struct {
 		name    string

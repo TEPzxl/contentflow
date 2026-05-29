@@ -49,16 +49,21 @@ type CollectionLock interface {
 	Acquire(ctx context.Context, sourceID int64, ttl time.Duration) (CollectionLockReleaseFunc, bool, error)
 }
 
+type SourceListCacheInvalidator interface {
+	DeleteUser(ctx context.Context, userID int64) error
+}
+
 type CollectionService struct {
-	sourceRepo    source.Repository
-	runRepo       RunRepository
-	registry      *Registry
-	articleWriter ArticleWriter
-	observer      CollectionObserver
-	lock          CollectionLock
-	lockTTL       time.Duration
-	logger        *slog.Logger
-	now           func() time.Time
+	sourceRepo                 source.Repository
+	runRepo                    RunRepository
+	registry                   *Registry
+	articleWriter              ArticleWriter
+	observer                   CollectionObserver
+	lock                       CollectionLock
+	sourceListCacheInvalidator SourceListCacheInvalidator
+	lockTTL                    time.Duration
+	logger                     *slog.Logger
+	now                        func() time.Time
 }
 
 type Option func(*CollectionService)
@@ -94,6 +99,12 @@ func WithCollectionLockTTL(ttl time.Duration) Option {
 		if ttl > 0 {
 			cs.lockTTL = ttl
 		}
+	}
+}
+
+func WithSourceListCacheInvalidator(invalidator SourceListCacheInvalidator) Option {
+	return func(cs *CollectionService) {
+		cs.sourceListCacheInvalidator = invalidator
 	}
 }
 
@@ -197,6 +208,7 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 	if err := s.sourceRepo.Update(ctx, src); err != nil {
 		return nil, fmt.Errorf("update source fetch status: %w", err)
 	}
+	s.invalidateSourceListCache(ctx, src.UserID)
 
 	s.observe(ctx, CollectionObservation{
 		RunID:           run.ID,
@@ -308,6 +320,7 @@ func (s *CollectionService) finishFailed(
 	if err := s.sourceRepo.Update(ctx, src); err != nil {
 		return nil, fmt.Errorf("update source failed status: %w", err)
 	}
+	s.invalidateSourceListCache(ctx, src.UserID)
 
 	s.observe(ctx, CollectionObservation{
 		RunID:           runID,
@@ -330,6 +343,12 @@ func (s *CollectionService) finishFailed(
 		DuplicatedCount: duplicatedCount,
 		ErrorMessage:    errorMessage,
 	}, fmt.Errorf("%w: %v", ErrCollectionFailed, cause)
+}
+
+func (s *CollectionService) invalidateSourceListCache(ctx context.Context, userID int64) {
+	if s.sourceListCacheInvalidator != nil {
+		_ = s.sourceListCacheInvalidator.DeleteUser(ctx, userID)
+	}
 }
 
 func (s *CollectionService) observe(ctx context.Context, observation CollectionObservation) {

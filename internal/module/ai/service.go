@@ -177,12 +177,16 @@ func (s *Service) UpdateAISettings(ctx context.Context, req UpdateAISettingsRequ
 	if err != nil {
 		return nil, err
 	}
+	model := strings.TrimSpace(req.Model)
+	if provider == "openai-compatible" && model == "" {
+		return nil, ErrInvalidAIModel
+	}
 
 	record, err := s.repo.UpsertAISettings(ctx, UpsertAISettingsParams{
 		UserID:           req.UserID,
 		Provider:         provider,
 		BaseURL:          baseURL,
-		Model:            strings.TrimSpace(req.Model),
+		Model:            model,
 		EmbeddingModel:   firstNonEmpty(req.EmbeddingModel, DefaultOpenAIEmbeddingModel),
 		APIKeyCiphertext: ciphertext,
 		APIKeyNonce:      nonce,

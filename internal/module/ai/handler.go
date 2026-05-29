@@ -236,6 +236,8 @@ func handleError(c *gin.Context, err error) {
 		response.Error(c, http.StatusBadRequest, "invalid_ai_provider", "invalid ai provider")
 	case errors.Is(err, ErrInvalidAIBaseURL):
 		response.Error(c, http.StatusBadRequest, "invalid_ai_base_url", "invalid ai base url")
+	case errors.Is(err, ErrInvalidAIModel):
+		response.Error(c, http.StatusBadRequest, "invalid_ai_model", "invalid ai model")
 	default:
 		response.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
