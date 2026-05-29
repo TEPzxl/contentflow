@@ -232,6 +232,8 @@ func handleError(c *gin.Context, err error) {
 		response.Error(c, http.StatusBadRequest, "empty_query", "query is required")
 	case errors.Is(err, ErrAISettingsEncryptionKeyRequired):
 		response.Error(c, http.StatusBadRequest, "ai_settings_encryption_key_required", "ai settings encryption key is required")
+	case errors.Is(err, ErrInvalidAIProvider):
+		response.Error(c, http.StatusBadRequest, "invalid_ai_provider", "invalid ai provider")
 	default:
 		response.Error(c, http.StatusInternalServerError, "internal_error", "internal server error")
 	}

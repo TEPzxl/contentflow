@@ -78,6 +78,32 @@ func TestHandler_GetAISettings(t *testing.T) {
 	}
 }
 
+func TestHandler_UpdateAISettingsRejectsInvalidProvider(t *testing.T) {
+	service := &fakeHandlerService{
+		updateSettings: func(context.Context, UpdateAISettingsRequest) (*AISettingsDTO, error) {
+			return nil, ErrInvalidAIProvider
+		},
+	}
+	router := newAIHandlerTestRouter(service, 10)
+
+	w := performAIJSONRequest(router, http.MethodPut, "/api/v1/ai/settings", `{"provider":"anthropic"}`)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Error.Code != "invalid_ai_provider" {
+		t.Fatalf("error code = %q, want invalid_ai_provider", payload.Error.Code)
+	}
+}
+
 type fakeHandlerService struct {
 	getSettings    func(context.Context, GetAISettingsRequest) (*AISettingsDTO, error)
 	updateSettings func(context.Context, UpdateAISettingsRequest) (*AISettingsDTO, error)

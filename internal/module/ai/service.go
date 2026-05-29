@@ -139,6 +139,11 @@ func (s *Service) GetAISettings(ctx context.Context, req GetAISettingsRequest) (
 }
 
 func (s *Service) UpdateAISettings(ctx context.Context, req UpdateAISettingsRequest) (*AISettingsDTO, error) {
+	provider, err := normalizeAIProvider(req.Provider)
+	if err != nil {
+		return nil, err
+	}
+
 	current, err := s.repo.FindAISettings(ctx, req.UserID)
 	if err != nil && !errors.Is(err, ErrAISettingsNotFound) {
 		return nil, err
@@ -169,7 +174,7 @@ func (s *Service) UpdateAISettings(ctx context.Context, req UpdateAISettingsRequ
 
 	record, err := s.repo.UpsertAISettings(ctx, UpsertAISettingsParams{
 		UserID:           req.UserID,
-		Provider:         normalizeAIProvider(req.Provider),
+		Provider:         provider,
 		BaseURL:          firstNonEmpty(req.BaseURL, DefaultOpenAIBaseURL),
 		Model:            strings.TrimSpace(req.Model),
 		EmbeddingModel:   firstNonEmpty(req.EmbeddingModel, DefaultOpenAIEmbeddingModel),
@@ -450,7 +455,11 @@ func (s *Service) assistantForUser(ctx context.Context, userID int64) (Assistant
 	if err != nil {
 		return nil, err
 	}
-	if normalizeAIProvider(record.Provider) == "local" {
+	provider, err := normalizeAIProvider(record.Provider)
+	if err != nil {
+		return nil, err
+	}
+	if provider == "local" {
 		return s.assistant, nil
 	}
 	if len(record.APIKeyCiphertext) == 0 || len(record.APIKeyNonce) == 0 {
@@ -566,8 +575,12 @@ func embeddingToDTO(record EmbeddingRecord) EmbeddingDTO {
 }
 
 func aiSettingsToDTO(record UserAISettingsRecord) AISettingsDTO {
+	provider, err := normalizeAIProvider(record.Provider)
+	if err != nil {
+		provider = "local"
+	}
 	return AISettingsDTO{
-		Provider:       normalizeAIProvider(record.Provider),
+		Provider:       provider,
 		BaseURL:        record.BaseURL,
 		Model:          record.Model,
 		EmbeddingModel: record.EmbeddingModel,
@@ -585,12 +598,14 @@ func defaultAISettingsDTO() AISettingsDTO {
 	}
 }
 
-func normalizeAIProvider(provider string) string {
+func normalizeAIProvider(provider string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "local", "extractive":
+		return "local", nil
 	case "openai", "openai-compatible":
-		return "openai-compatible"
+		return "openai-compatible", nil
 	default:
-		return "local"
+		return "", ErrInvalidAIProvider
 	}
 }
 

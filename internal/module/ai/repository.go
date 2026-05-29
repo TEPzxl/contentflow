@@ -74,6 +74,7 @@ var (
 	ErrDigestNotFound                  = errors.New("digest not found")
 	ErrAISettingsNotFound              = errors.New("ai settings not found")
 	ErrAISettingsEncryptionKeyRequired = errors.New("ai settings encryption key required")
+	ErrInvalidAIProvider               = errors.New("invalid ai provider")
 	ErrNoSummaryJob                    = errors.New("no summary job")
 )
 

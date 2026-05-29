@@ -334,6 +334,18 @@ func TestService_UpdateAISettingsClearsAPIKeyWhenEmptyString(t *testing.T) {
 	}
 }
 
+func TestService_UpdateAISettingsRejectsUnknownProvider(t *testing.T) {
+	service := NewService(newFakeRepository(), newFakeArticleRepository(), fakeAssistant{})
+
+	_, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
+		UserID:   10,
+		Provider: "anthropic",
+	})
+	if !errors.Is(err, ErrInvalidAIProvider) {
+		t.Fatalf("UpdateAISettings() error = %v, want ErrInvalidAIProvider", err)
+	}
+}
+
 func TestService_GetAISettingsRedactsEncryptedAPIKey(t *testing.T) {
 	repo := newFakeRepository()
 	box := testSecretBox(t)
