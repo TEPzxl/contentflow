@@ -1,6 +1,6 @@
 app:
   name: contentflow
-  env: docker
+  env: dev
   mode: all
 
 server:
@@ -41,6 +41,13 @@ rate_limit:
   login_window: 1m
   collect_limit: 10
   collect_window: 1m
+
+cors:
+  allowed_origins:
+    - http://localhost:3000
+    - http://localhost:3001
+    - http://127.0.0.1:3000
+    - http://127.0.0.1:3001
 
 observability:
   metrics_enabled: true

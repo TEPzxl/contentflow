@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/tepzxl/contentflow/internal/netguard"
 )
 
 const (
@@ -22,6 +24,7 @@ type OpenAIConfig struct {
 	ChatModel      string
 	EmbeddingModel string
 	Timeout        time.Duration
+	HTTPClient     *http.Client
 }
 
 type OpenAICompatibleAssistant struct {
@@ -49,16 +52,27 @@ func NewOpenAICompatibleAssistant(cfg OpenAIConfig) (*OpenAICompatibleAssistant,
 	if baseURL == "" {
 		baseURL = DefaultOpenAIBaseURL
 	}
+	if err := netguard.ValidateHTTPURL(baseURL); err != nil {
+		return nil, fmt.Errorf("invalid openai base url: %w", err)
+	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
+	}
+	client := cfg.HTTPClient
+	if client == nil {
+		client = &http.Client{
+			Timeout:       timeout,
+			Transport:     safeOpenAITransport(),
+			CheckRedirect: safeOpenAIRedirect,
+		}
 	}
 	return &OpenAICompatibleAssistant{
 		baseURL:        baseURL,
 		apiKey:         apiKey,
 		chatModel:      chatModel,
 		embeddingModel: embeddingModel,
-		client:         &http.Client{Timeout: timeout},
+		client:         client,
 	}, nil
 }
 
@@ -159,6 +173,26 @@ func (a *OpenAICompatibleAssistant) chat(ctx context.Context, system, user strin
 		return "", errors.New("openai chat completion content is empty")
 	}
 	return content, nil
+}
+
+func safeOpenAITransport() http.RoundTripper {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	clone := transport.Clone()
+	clone.DialContext = netguard.DialContext
+	return clone
+}
+
+func safeOpenAIRedirect(req *http.Request, via []*http.Request) error {
+	if err := netguard.ValidateHTTPURL(req.URL.String()); err != nil {
+		return err
+	}
+	if len(via) >= 10 {
+		return http.ErrUseLastResponse
+	}
+	return nil
 }
 
 func (a *OpenAICompatibleAssistant) post(ctx context.Context, path string, payload any, out any) error {

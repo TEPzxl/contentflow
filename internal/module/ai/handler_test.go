@@ -24,7 +24,7 @@ func TestHandler_UpdateAISettingsRedactsAPIKey(t *testing.T) {
 			}
 			return &AISettingsDTO{
 				Provider:       "openai-compatible",
-				BaseURL:        "http://ai.local/v1",
+				BaseURL:        "https://example.com/v1",
 				Model:          "chat-model",
 				EmbeddingModel: "embed-model",
 				HasAPIKey:      true,
@@ -35,7 +35,7 @@ func TestHandler_UpdateAISettingsRedactsAPIKey(t *testing.T) {
 
 	w := performAIJSONRequest(router, http.MethodPut, "/api/v1/ai/settings", `{
 		"provider": "openai-compatible",
-		"base_url": "http://ai.local/v1",
+		"base_url": "https://example.com/v1",
 		"model": "chat-model",
 		"embedding_model": "embed-model",
 		"api_key": "sk-test"
@@ -88,20 +88,20 @@ func TestHandler_UpdateAISettingsRejectsInvalidProvider(t *testing.T) {
 
 	w := performAIJSONRequest(router, http.MethodPut, "/api/v1/ai/settings", `{"provider":"anthropic"}`)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	assertAIErrorCode(t, w, http.StatusBadRequest, "invalid_ai_provider")
+}
+
+func TestHandler_UpdateAISettingsRejectsInvalidBaseURL(t *testing.T) {
+	service := &fakeHandlerService{
+		updateSettings: func(context.Context, UpdateAISettingsRequest) (*AISettingsDTO, error) {
+			return nil, ErrInvalidAIBaseURL
+		},
 	}
-	var payload struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if payload.Error.Code != "invalid_ai_provider" {
-		t.Fatalf("error code = %q, want invalid_ai_provider", payload.Error.Code)
-	}
+	router := newAIHandlerTestRouter(service, 10)
+
+	w := performAIJSONRequest(router, http.MethodPut, "/api/v1/ai/settings", `{"provider":"openai-compatible","base_url":"http://127.0.0.1:8080/v1"}`)
+
+	assertAIErrorCode(t, w, http.StatusBadRequest, "invalid_ai_base_url")
 }
 
 type fakeHandlerService struct {
@@ -165,4 +165,22 @@ func performAIJSONRequest(router http.Handler, method, path string, body string)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
+}
+
+func assertAIErrorCode(t *testing.T, w *httptest.ResponseRecorder, wantStatus int, wantCode string) {
+	t.Helper()
+	if w.Code != wantStatus {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Error.Code != wantCode {
+		t.Fatalf("error code = %q, want %s", payload.Error.Code, wantCode)
+	}
 }

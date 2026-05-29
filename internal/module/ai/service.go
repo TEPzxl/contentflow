@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tepzxl/contentflow/internal/module/article"
+	"github.com/tepzxl/contentflow/internal/netguard"
 )
 
 type Service struct {
@@ -172,10 +173,15 @@ func (s *Service) UpdateAISettings(ctx context.Context, req UpdateAISettingsRequ
 		}
 	}
 
+	baseURL, err := normalizeAIBaseURL(req.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+
 	record, err := s.repo.UpsertAISettings(ctx, UpsertAISettingsParams{
 		UserID:           req.UserID,
 		Provider:         provider,
-		BaseURL:          firstNonEmpty(req.BaseURL, DefaultOpenAIBaseURL),
+		BaseURL:          baseURL,
 		Model:            strings.TrimSpace(req.Model),
 		EmbeddingModel:   firstNonEmpty(req.EmbeddingModel, DefaultOpenAIEmbeddingModel),
 		APIKeyCiphertext: ciphertext,
@@ -472,8 +478,12 @@ func (s *Service) assistantForUser(ctx context.Context, userID int64) (Assistant
 	if err != nil {
 		return nil, fmt.Errorf("decrypt ai api key: %w", err)
 	}
+	baseURL, err := normalizeAIBaseURL(record.BaseURL)
+	if err != nil {
+		return nil, err
+	}
 	assistant, err := s.assistantFactory(OpenAIConfig{
-		BaseURL:        firstNonEmpty(record.BaseURL, DefaultOpenAIBaseURL),
+		BaseURL:        baseURL,
 		APIKey:         apiKey,
 		ChatModel:      record.Model,
 		EmbeddingModel: firstNonEmpty(record.EmbeddingModel, DefaultOpenAIEmbeddingModel),
@@ -607,6 +617,17 @@ func normalizeAIProvider(provider string) (string, error) {
 	default:
 		return "", ErrInvalidAIProvider
 	}
+}
+
+func normalizeAIBaseURL(raw string) (string, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if baseURL == "" {
+		baseURL = DefaultOpenAIBaseURL
+	}
+	if err := netguard.ValidateHTTPURL(baseURL); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidAIBaseURL, err)
+	}
+	return baseURL, nil
 }
 
 func digestToDTO(record DigestRecord) DigestDTO {

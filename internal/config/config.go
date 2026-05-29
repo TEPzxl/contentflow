@@ -22,8 +22,13 @@ type Config struct {
 	Auth          AuthConfig          `mapstructure:"auth"`
 	RateLimit     RateLimitConfig     `mapstructure:"rate_limit"`
 	Cache         CacheConfig         `mapstructure:"cache"`
+	CORS          CORSConfig          `mapstructure:"cors"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
 	AI            AIConfig            `mapstructure:"ai"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
 type AIConfig struct {
@@ -194,6 +199,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("rate_limit.login_window", "1m")
 	v.SetDefault("rate_limit.collect_limit", 10)
 	v.SetDefault("rate_limit.collect_window", "1m")
+
+	v.SetDefault("cors.allowed_origins", []string{
+		"http://localhost:3000",
+		"http://localhost:3001",
+		"http://127.0.0.1:3000",
+		"http://127.0.0.1:3001",
+	})
 
 	v.SetDefault("observability.metrics_enabled", true)
 	v.SetDefault("observability.tracing_enabled", false)

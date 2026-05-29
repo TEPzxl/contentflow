@@ -75,6 +75,7 @@ var (
 	ErrAISettingsNotFound              = errors.New("ai settings not found")
 	ErrAISettingsEncryptionKeyRequired = errors.New("ai settings encryption key required")
 	ErrInvalidAIProvider               = errors.New("invalid ai provider")
+	ErrInvalidAIBaseURL                = errors.New("invalid ai base url")
 	ErrNoSummaryJob                    = errors.New("no summary job")
 )
 

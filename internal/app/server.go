@@ -278,6 +278,9 @@ func Run() error {
 		if cfg.Observability.TracingEnabled {
 			routerOptions = append(routerOptions, contenthttp.WithTracing(cfg.Observability.ServiceName))
 		}
+		if len(cfg.CORS.AllowedOrigins) > 0 {
+			routerOptions = append(routerOptions, contenthttp.WithCORSAllowedOrigins(cfg.CORS.AllowedOrigins))
+		}
 
 		router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {
 			auth.RegisterRoutes(api, authHandler, authRequired, loginRateLimit)

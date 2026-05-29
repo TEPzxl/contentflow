@@ -20,7 +20,7 @@ func TestNewConfiguredAssistantDefaultsToLocal(t *testing.T) {
 func TestNewConfiguredAssistantUsesOpenAIWhenAPIKeyIsConfigured(t *testing.T) {
 	assistant, err := newConfiguredAssistant(config.AIConfig{
 		Provider:       "local",
-		BaseURL:        "http://ai.local/v1",
+		BaseURL:        "https://example.com/v1",
 		APIKey:         "test-key",
 		Model:          "chat-model",
 		EmbeddingModel: "embed-model",

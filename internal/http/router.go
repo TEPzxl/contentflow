@@ -18,6 +18,7 @@ type RegisterRoutesFunc func(api *gin.RouterGroup)
 type routerOptions struct {
 	metrics            *observability.Metrics
 	tracingServiceName string
+	corsAllowedOrigins []string
 }
 
 type RouterOption func(*routerOptions)
@@ -34,6 +35,12 @@ func WithTracing(serviceName string) RouterOption {
 	}
 }
 
+func WithCORSAllowedOrigins(origins []string) RouterOption {
+	return func(opts *routerOptions) {
+		opts.corsAllowedOrigins = origins
+	}
+}
+
 func NewRouter(log *slog.Logger, db *gorm.DB, redisClient *redis.Client, registerRoutes RegisterRoutesFunc, opts ...RouterOption) *gin.Engine {
 	options := routerOptions{}
 	for _, opt := range opts {
@@ -44,6 +51,9 @@ func NewRouter(log *slog.Logger, db *gorm.DB, redisClient *redis.Client, registe
 
 	r.Use(gin.Recovery())
 	r.Use(middleware.SecurityHeaders())
+	if len(options.corsAllowedOrigins) > 0 {
+		r.Use(middleware.CORS(options.corsAllowedOrigins))
+	}
 	r.Use(middleware.RequestID())
 	if options.tracingServiceName != "" {
 		r.Use(otelgin.Middleware(options.tracingServiceName))

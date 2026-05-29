@@ -40,6 +40,16 @@ auth:
 	}
 }
 
+func TestLoadDockerConfigForLocalCompose(t *testing.T) {
+	cfg, err := config.Load(filepath.Join("..", "..", "configs", "config.docker.yaml"))
+	if err != nil {
+		t.Fatalf("Load(config.docker.yaml) error = %v", err)
+	}
+	if cfg.App.Env != "dev" {
+		t.Fatalf("App.Env = %q, want dev", cfg.App.Env)
+	}
+}
+
 func TestLoadAppliesDatabaseDefaults(t *testing.T) {
 	path := writeTempConfig(t, `
 app:

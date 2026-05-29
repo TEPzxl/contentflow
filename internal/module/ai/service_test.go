@@ -187,7 +187,7 @@ func TestService_RAGSearchUsesUserAISettingsAssistant(t *testing.T) {
 	repo.aiSettings = &UserAISettingsRecord{
 		UserID:           10,
 		Provider:         "openai-compatible",
-		BaseURL:          "http://ai.local/v1",
+		BaseURL:          "https://example.com/v1",
 		Model:            "chat-model",
 		EmbeddingModel:   "embed-model",
 		APIKeyCiphertext: ciphertext,
@@ -232,7 +232,7 @@ func TestService_UpdateAISettingsEncryptsAPIKeyAndRedactsResponse(t *testing.T) 
 	result, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
 		UserID:         10,
 		Provider:       "openai-compatible",
-		BaseURL:        "http://ai.local/v1",
+		BaseURL:        "https://example.com/v1",
 		Model:          "chat-model",
 		EmbeddingModel: "embed-model",
 		APIKey:         &apiKey,
@@ -265,7 +265,7 @@ func TestService_UpdateAISettingsPreservesExistingAPIKeyWhenOmitted(t *testing.T
 	repo.aiSettings = &UserAISettingsRecord{
 		UserID:           10,
 		Provider:         "openai-compatible",
-		BaseURL:          "http://ai.local/v1",
+		BaseURL:          "https://example.com/v1",
 		Model:            "old-chat-model",
 		EmbeddingModel:   "old-embed-model",
 		APIKeyCiphertext: ciphertext,
@@ -276,7 +276,7 @@ func TestService_UpdateAISettingsPreservesExistingAPIKeyWhenOmitted(t *testing.T
 	result, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
 		UserID:         10,
 		Provider:       "openai-compatible",
-		BaseURL:        "http://ai.local/v2",
+		BaseURL:        "https://example.com/v2",
 		Model:          "new-chat-model",
 		EmbeddingModel: "new-embed-model",
 	})
@@ -290,7 +290,7 @@ func TestService_UpdateAISettingsPreservesExistingAPIKeyWhenOmitted(t *testing.T
 	if string(repo.aiSettings.APIKeyCiphertext) != string(ciphertext) || string(repo.aiSettings.APIKeyNonce) != string(nonce) {
 		t.Fatal("stored api key changed when request omitted api_key")
 	}
-	if result.BaseURL != "http://ai.local/v2" || result.Model != "new-chat-model" {
+	if result.BaseURL != "https://example.com/v2" || result.Model != "new-chat-model" {
 		t.Fatalf("result = %#v", result)
 	}
 }
@@ -305,7 +305,7 @@ func TestService_UpdateAISettingsClearsAPIKeyWhenEmptyString(t *testing.T) {
 	repo.aiSettings = &UserAISettingsRecord{
 		UserID:           10,
 		Provider:         "openai-compatible",
-		BaseURL:          "http://ai.local/v1",
+		BaseURL:          "https://example.com/v1",
 		Model:            "chat-model",
 		EmbeddingModel:   "embed-model",
 		APIKeyCiphertext: ciphertext,
@@ -317,7 +317,7 @@ func TestService_UpdateAISettingsClearsAPIKeyWhenEmptyString(t *testing.T) {
 	result, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
 		UserID:         10,
 		Provider:       "openai-compatible",
-		BaseURL:        "http://ai.local/v1",
+		BaseURL:        "https://example.com/v1",
 		Model:          "chat-model",
 		EmbeddingModel: "embed-model",
 		APIKey:         &apiKey,
@@ -346,6 +346,33 @@ func TestService_UpdateAISettingsRejectsUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestService_UpdateAISettingsRejectsUnsafeBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+	}{
+		{name: "loopback", baseURL: "http://127.0.0.1:8080/v1"},
+		{name: "localhost", baseURL: "http://localhost:8080/v1"},
+		{name: "link local metadata", baseURL: "http://169.254.169.254/latest"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewService(newFakeRepository(), newFakeArticleRepository(), fakeAssistant{})
+
+			_, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
+				UserID:   10,
+				Provider: "openai-compatible",
+				BaseURL:  tt.baseURL,
+				Model:    "chat-model",
+			})
+			if !errors.Is(err, ErrInvalidAIBaseURL) {
+				t.Fatalf("UpdateAISettings() error = %v, want ErrInvalidAIBaseURL", err)
+			}
+		})
+	}
+}
+
 func TestService_GetAISettingsRedactsEncryptedAPIKey(t *testing.T) {
 	repo := newFakeRepository()
 	box := testSecretBox(t)
@@ -356,7 +383,7 @@ func TestService_GetAISettingsRedactsEncryptedAPIKey(t *testing.T) {
 	repo.aiSettings = &UserAISettingsRecord{
 		UserID:           10,
 		Provider:         "openai-compatible",
-		BaseURL:          "http://ai.local/v1",
+		BaseURL:          "https://example.com/v1",
 		Model:            "chat-model",
 		EmbeddingModel:   "embed-model",
 		APIKeyCiphertext: ciphertext,
@@ -372,7 +399,7 @@ func TestService_GetAISettingsRedactsEncryptedAPIKey(t *testing.T) {
 	if !result.HasAPIKey {
 		t.Fatal("HasAPIKey = false, want true")
 	}
-	if result.Provider != "openai-compatible" || result.BaseURL != "http://ai.local/v1" {
+	if result.Provider != "openai-compatible" || result.BaseURL != "https://example.com/v1" {
 		t.Fatalf("result = %#v", result)
 	}
 }
@@ -384,7 +411,7 @@ func TestService_UpdateAISettingsRejectsAPIKeyWithoutEncryptionKey(t *testing.T)
 	_, err := service.UpdateAISettings(context.Background(), UpdateAISettingsRequest{
 		UserID:   10,
 		Provider: "openai-compatible",
-		BaseURL:  "http://ai.local/v1",
+		BaseURL:  "https://example.com/v1",
 		Model:    "chat-model",
 		APIKey:   &apiKey,
 	})

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -30,11 +31,12 @@ func TestOpenAICompatibleAssistant_EmbedCallsEmbeddingsAPI(t *testing.T) {
 	defer server.Close()
 
 	assistant, err := NewOpenAICompatibleAssistant(OpenAIConfig{
-		BaseURL:        server.URL + "/v1",
+		BaseURL:        "https://api.openai.test/v1",
 		APIKey:         "test-key",
 		ChatModel:      "chat-model",
 		EmbeddingModel: "embed-model",
 		Timeout:        time.Second,
+		HTTPClient:     newRewriteClient(t, server.URL),
 	})
 	if err != nil {
 		t.Fatalf("NewOpenAICompatibleAssistant() error = %v", err)
@@ -49,6 +51,18 @@ func TestOpenAICompatibleAssistant_EmbedCallsEmbeddingsAPI(t *testing.T) {
 	}
 	if len(result.Vector) != 3 || result.Vector[2] != 0.3 {
 		t.Fatalf("vector = %#v", result.Vector)
+	}
+}
+
+func TestOpenAICompatibleAssistant_RejectsUnsafeBaseURL(t *testing.T) {
+	_, err := NewOpenAICompatibleAssistant(OpenAIConfig{
+		BaseURL:        "http://127.0.0.1:8080/v1",
+		APIKey:         "test-key",
+		ChatModel:      "chat-model",
+		EmbeddingModel: "embed-model",
+	})
+	if err == nil {
+		t.Fatal("NewOpenAICompatibleAssistant() error = nil, want unsafe base url error")
 	}
 }
 
@@ -82,11 +96,12 @@ func TestOpenAICompatibleAssistant_AnswerCallsChatCompletionsAPI(t *testing.T) {
 	defer server.Close()
 
 	assistant, err := NewOpenAICompatibleAssistant(OpenAIConfig{
-		BaseURL:        server.URL + "/v1",
+		BaseURL:        "https://api.openai.test/v1",
 		APIKey:         "test-key",
 		ChatModel:      "chat-model",
 		EmbeddingModel: "embed-model",
 		Timeout:        time.Second,
+		HTTPClient:     newRewriteClient(t, server.URL),
 	})
 	if err != nil {
 		t.Fatalf("NewOpenAICompatibleAssistant() error = %v", err)
@@ -104,4 +119,27 @@ func TestOpenAICompatibleAssistant_AnswerCallsChatCompletionsAPI(t *testing.T) {
 	if len(result.Citations) != 1 || result.Citations[0].ArticleID != 7 {
 		t.Fatalf("citations = %#v", result.Citations)
 	}
+}
+
+func newRewriteClient(t *testing.T, target string) *http.Client {
+	t.Helper()
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		t.Fatalf("parse target server url: %v", err)
+	}
+	return &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			clone := req.Clone(req.Context())
+			clone.URL.Scheme = targetURL.Scheme
+			clone.URL.Host = targetURL.Host
+			clone.Host = targetURL.Host
+			return http.DefaultTransport.RoundTrip(clone)
+		}),
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
