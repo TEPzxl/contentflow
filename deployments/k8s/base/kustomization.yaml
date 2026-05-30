@@ -26,6 +26,12 @@ configMapGenerator:
       - 000001_create_initial_tables.down.sql=migrations/000001_create_initial_tables.down.sql
       - 000002_create_kafka_reliability_tables.up.sql=migrations/000002_create_kafka_reliability_tables.up.sql
       - 000002_create_kafka_reliability_tables.down.sql=migrations/000002_create_kafka_reliability_tables.down.sql
+      - 000003_create_ai_feature_tables.up.sql=migrations/000003_create_ai_feature_tables.up.sql
+      - 000003_create_ai_feature_tables.down.sql=migrations/000003_create_ai_feature_tables.down.sql
+      - 000004_create_article_search_index.up.sql=migrations/000004_create_article_search_index.up.sql
+      - 000004_create_article_search_index.down.sql=migrations/000004_create_article_search_index.down.sql
+      - 000005_add_embedding_lookup_index.up.sql=migrations/000005_add_embedding_lookup_index.up.sql
+      - 000005_add_embedding_lookup_index.down.sql=migrations/000005_add_embedding_lookup_index.down.sql
 
 generatorOptions:
   disableNameSuffixHash: true

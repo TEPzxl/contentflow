@@ -704,10 +704,6 @@ func strPtr(s string) *string {
 	return &s
 }
 
-func boolPtr(v bool) *bool {
-	return &v
-}
-
 func fixedTime() time.Time {
 	return time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 }

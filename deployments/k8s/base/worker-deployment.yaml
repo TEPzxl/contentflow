@@ -27,6 +27,8 @@ spec:
               value: /etc/contentflow/config.yaml
             - name: CONTENTFLOW_APP_MODE
               value: worker
+            - name: CONTENTFLOW_OBSERVABILITY_SERVICE_NAME
+              value: contentflow-worker
             - name: CONTENTFLOW_DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:

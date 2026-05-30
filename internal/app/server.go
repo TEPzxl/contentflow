@@ -33,6 +33,28 @@ import (
 	"github.com/tepzxl/contentflow/internal/ratelimit"
 )
 
+func startBackgroundTask(wg *sync.WaitGroup, errCh chan<- error, log *slog.Logger, taskName string, run func() error) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if err := run(); err != nil {
+			log.Error("background task stopped with error",
+				slog.String("task", taskName),
+				slog.String("error", err.Error()),
+			)
+			select {
+			case errCh <- err:
+			default:
+				log.Warn("background task error not reported because error channel is full",
+					slog.String("task", taskName),
+					slog.String("error", err.Error()),
+				)
+			}
+		}
+	}()
+}
+
 func Run() error {
 	cfg, err := config.Load(config.PathFromEnv("configs/config.yaml"))
 	if err != nil {
@@ -288,47 +310,31 @@ func Run() error {
 
 	backgroundCtx, stopBackground := context.WithCancel(context.Background())
 	var backgroundWG sync.WaitGroup
+	errCh := make(chan error, 1)
 
 	if plan.Scheduler {
-		backgroundWG.Add(1)
-		go func() {
-			defer backgroundWG.Done()
-			if err := collectionScheduler.Run(backgroundCtx); err != nil {
-				log.Error("collection scheduler stopped with error", slog.String("error", err.Error()))
-			}
-		}()
+		startBackgroundTask(&backgroundWG, errCh, log, "collection scheduler", func() error {
+			return collectionScheduler.Run(backgroundCtx)
+		})
 	}
 
 	if plan.Scheduler || plan.Worker {
-		backgroundWG.Add(1)
-		go func() {
-			defer backgroundWG.Done()
-			if err := aiSummaryWorker.Run(backgroundCtx); err != nil {
-				log.Error("ai summary worker stopped with error", slog.String("error", err.Error()))
-			}
-		}()
+		startBackgroundTask(&backgroundWG, errCh, log, "ai summary worker", func() error {
+			return aiSummaryWorker.Run(backgroundCtx)
+		})
 	}
 
 	if plan.Worker && collectionWorker != nil {
-		backgroundWG.Add(1)
-		go func() {
-			defer backgroundWG.Done()
-			if err := collectionWorker.Run(backgroundCtx); err != nil {
-				log.Error("collection worker stopped with error", slog.String("error", err.Error()))
-			}
-		}()
+		startBackgroundTask(&backgroundWG, errCh, log, "collection worker", func() error {
+			return collectionWorker.Run(backgroundCtx)
+		})
 	}
-	if outboxDispatcher != nil {
-		backgroundWG.Add(1)
-		go func() {
-			defer backgroundWG.Done()
-			if err := outboxDispatcher.Run(backgroundCtx); err != nil {
-				log.Error("outbox dispatcher stopped with error", slog.String("error", err.Error()))
-			}
-		}()
+	if plan.runsOutboxDispatcher() && outboxDispatcher != nil {
+		startBackgroundTask(&backgroundWG, errCh, log, "outbox dispatcher", func() error {
+			return outboxDispatcher.Run(backgroundCtx)
+		})
 	}
 
-	errCh := make(chan error, 1)
 	if server != nil {
 		go func() {
 			fmt.Println("contentflow server started on :8080")

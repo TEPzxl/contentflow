@@ -234,19 +234,7 @@ func parseIntQuery(c *gin.Context, name string, defaultValue int) (int, error) {
 }
 
 func toSourceHTTPResp(src SourceDTO) sourceHTTPResp {
-	return sourceHTTPResp{
-		ID:               src.ID,
-		Name:             src.Name,
-		Type:             src.Type,
-		URL:              src.URL,
-		Config:           src.Config,
-		IsActive:         src.IsActive,
-		LastFetchedAt:    src.LastFetchedAt,
-		LastFetchStatus:  src.LastFetchStatus,
-		LastFetchMessage: src.LastFetchMessage,
-		CreatedAt:        src.CreatedAt,
-		UpdatedAt:        src.UpdatedAt,
-	}
+	return sourceHTTPResp(src)
 }
 
 type createSourceHTTPReq struct {

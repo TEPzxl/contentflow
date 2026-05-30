@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -79,7 +80,9 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 		t.Fatalf("create source: %v", err)
 	}
 
-	registry, err := collector.NewRegistry(rsscollector.NewCollector())
+	registry, err := collector.NewRegistry(rsscollector.NewCollector(
+		rsscollector.WithFetcher(localTestHTTPFetcher{client: feedServer.Client()}),
+	))
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -128,6 +131,26 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 	if gotSource.LastFetchStatus != collector.RunStatusSuccess {
 		t.Fatalf("LastFetchStatus = %q, want %q", gotSource.LastFetchStatus, collector.RunStatusSuccess)
 	}
+}
+
+type localTestHTTPFetcher struct {
+	client *http.Client
+}
+
+func (f localTestHTTPFetcher) Fetch(ctx context.Context, feedURL string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+	return resp.Body, nil
 }
 
 func setupCollectorIntegrationDB(t *testing.T) (*gorm.DB, func()) {

@@ -5,6 +5,7 @@ namespace: contentflow-staging
 
 resources:
   - ../../base
+  - external-secret.yaml
 
 nameSuffix: -staging
 
@@ -17,6 +18,7 @@ images:
     newTag: staging
 
 patches:
+  - path: delete-local-secret.yaml
   - target:
       kind: Ingress
       name: contentflow-backend

@@ -64,7 +64,7 @@ case "${cmd}" in
     go test -run '^$' -bench=. -benchmem ./internal/module/article ./internal/module/collector/rss ./internal/module/collectionjob
     ;;
   integration)
-    go test -count=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
+    go test -count=1 -p=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
     ;;
   docker-build)
     GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \

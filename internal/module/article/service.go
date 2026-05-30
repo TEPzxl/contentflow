@@ -98,15 +98,7 @@ func (s *Service) ListArticles(ctx context.Context, req ListArticlesRequest) (*L
 		}
 	}
 
-	rows, total, err := s.repo.ListByUser(ctx, ListArticlesParams{
-		UserID:   normalizedReq.UserID,
-		SourceID: normalizedReq.SourceID,
-		Query:    normalizedReq.Query,
-		IsRead:   normalizedReq.IsRead,
-		IsSaved:  normalizedReq.IsSaved,
-		Limit:    normalizedReq.Limit,
-		Offset:   normalizedReq.Offset,
-	})
+	rows, total, err := s.repo.ListByUser(ctx, ListArticlesParams(normalizedReq))
 	if err != nil {
 		return nil, fmt.Errorf("list articles: %w", err)
 	}
@@ -232,25 +224,7 @@ func normalizeOffset(offset int) int {
 }
 
 func toArticleDTO(row ArticleWithState) ArticleDTO {
-	return ArticleDTO{
-		ID:          row.ID,
-		SourceID:    row.SourceID,
-		SourceType:  row.SourceType,
-		ExternalID:  row.ExternalID,
-		Title:       row.Title,
-		URL:         row.URL,
-		OriginalURL: row.OriginalURL,
-		Author:      row.Author,
-		Summary:     row.Summary,
-		Content:     row.Content,
-		PublishedAt: row.PublishedAt,
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
-		IsRead:      row.IsRead,
-		IsSaved:     row.IsSaved,
-		ReadAt:      row.ReadAt,
-		SavedAt:     row.SavedAt,
-	}
+	return ArticleDTO(row)
 }
 
 func toArticleListDTO(row ArticleWithState) ArticleDTO {

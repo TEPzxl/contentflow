@@ -136,3 +136,20 @@ flowchart TD
   ExternalSecret[ExternalSecret] --> Secret[K8s Secret]
   Secret --> Backend
 ```
+
+## Phase 1 微服务路径与运行时拆分
+
+Contentflow 当前仍然是模块化单体代码库，而不是已经完成业务服务和数据库拆分的微服务系统。Phase 1 的目标是在不拆分 Go 代码库和 PostgreSQL schema 的前提下，通过同一个后端镜像支持多个运行时角色，实现独立部署、独立扩缩容和故障隔离。
+
+同一个 backend image 支持以下 runtime role，并启用 runtime plan 中的主职责：
+
+- `api`：主要承担 Gin HTTP API，面向 Next.js 前端和外部调用方提供接口。
+- `scheduler`：主要承担定时采集调度，将采集请求分发到 Kafka / outbox。
+- `worker`：主要承担 Kafka collection worker，负责 RSS / Email fetch、article write 和 collection run 状态更新。
+- `all`：本地兼容模式，启用 API、scheduler 和 worker 的主职责，便于开发与旧运行方式兼容。
+
+需要注意的是，Phase 1 是 deployment role split，不是严格的 process-level service boundary。启用 Kafka 时，outbox dispatcher 由 `scheduler` runtime 统一拥有；`all` 包含 scheduler 职责，因此本地兼容模式仍会运行 outbox dispatcher，而 `api` / `worker` runtime 不会启动它。
+
+Phase 1 也还没有独立的 `ai-service` 或 `ai-worker` deployment。根据当前 `internal/app/server.go` 行为，AI summary worker 仍会随 scheduler / worker runtime 共同运行；后续如果要独立抽取，需要先补齐对应的 ports / adapters 边界。
+
+Phase 1 不是完整的 microservice / database split。PostgreSQL schema、Redis、Kafka、Go codebase 以及模块之间的直接 in-process 调用仍然是共享的。后续如果要抽取独立的 `ingestion-service` 和 `ai-service`，需要先补齐 ports / adapters 边界，避免服务拆分后仍然依赖内部包和共享实现细节。
