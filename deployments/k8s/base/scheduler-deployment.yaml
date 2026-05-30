@@ -27,6 +27,8 @@ spec:
               value: /etc/contentflow/config.yaml
             - name: CONTENTFLOW_APP_MODE
               value: scheduler
+            - name: CONTENTFLOW_OBSERVABILITY_SERVICE_NAME
+              value: contentflow-scheduler
             - name: CONTENTFLOW_DATABASE_PASSWORD
               valueFrom:
                 secretKeyRef:
