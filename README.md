@@ -31,6 +31,8 @@ flowchart LR
   OTel[OpenTelemetry Collector] --> Jaeger[Jaeger]
 ```
 
+当前后端仍然是模块化单体代码：Compose / K8s 将 API、scheduler、worker 拆成独立 runtime 部署，是微服务演进的第一阶段，用于独立扩缩容和故障隔离，并不代表已经完成数据库拆分或业务服务拆分。
+
 更多图和职责边界见 [docs/architecture.md](docs/architecture.md)。
 
 ## 核心功能
@@ -47,7 +49,7 @@ flowchart LR
 
 ## 本地快速启动
 
-启动依赖和应用：
+启动依赖和应用。Compose 会启动 frontend、PostgreSQL、Redis、Kafka、migrate、observability components，以及 backend API / scheduler / worker runtimes：
 
 ```fish
 docker compose -f deployments/docker-compose.yaml up --build
@@ -62,11 +64,11 @@ docker compose -f deployments/docker-compose.yaml up --build
 - Prometheus：`http://localhost:9090`
 - Jaeger：`http://localhost:16686`
 
-只启动基础依赖并在本机跑后端：
+只启动基础依赖并在本机跑后端 API：
 
 ```fish
 docker compose -f deployments/docker-compose.yaml up -d postgres redis kafka migrate
-CONTENTFLOW_CONFIG=configs/config.yaml go run ./cmd/server
+env CONTENTFLOW_CONFIG=configs/config.yaml CONTENTFLOW_APP_MODE=api go run ./cmd/server
 ```
 
 ## 前端启动
