@@ -40,6 +40,16 @@ auth:
 	}
 }
 
+func TestDockerConfigLoadsWithDevelopmentDefaults(t *testing.T) {
+	t.Setenv("CONTENTFLOW_APP_ENV", "")
+	t.Setenv("CONTENTFLOW_AUTH_JWT_SECRET", "")
+
+	path := filepath.Join("..", "..", "configs", "config.docker.yaml")
+	if _, err := config.Load(path); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+}
+
 func writeTempConfig(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
