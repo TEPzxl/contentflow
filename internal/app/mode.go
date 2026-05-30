@@ -11,6 +11,10 @@ type runtimePlan struct {
 	Worker    bool
 }
 
+func (p runtimePlan) runsOutboxDispatcher() bool {
+	return p.Scheduler
+}
+
 func runtimePlanForMode(mode string) (runtimePlan, error) {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "", "all":

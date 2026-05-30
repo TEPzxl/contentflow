@@ -318,7 +318,7 @@ func Run() error {
 			}
 		}()
 	}
-	if outboxDispatcher != nil {
+	if plan.runsOutboxDispatcher() && outboxDispatcher != nil {
 		backgroundWG.Add(1)
 		go func() {
 			defer backgroundWG.Done()

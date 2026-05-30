@@ -1,10 +1,14 @@
+x-backend-runtime: &backend-runtime
+  image: contentflow-backend:local
+  build:
+    context: ..
+    dockerfile: deployments/Dockerfile
+    args:
+      GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+
 services:
   backend:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-      args:
-        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    <<: *backend-runtime
     container_name: contentflow_api
     environment:
       CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
@@ -30,11 +34,7 @@ services:
         condition: service_started
 
   scheduler:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-      args:
-        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    <<: *backend-runtime
     container_name: contentflow_scheduler
     environment:
       CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
@@ -53,11 +53,7 @@ services:
         condition: service_started
 
   worker:
-    build:
-      context: ..
-      dockerfile: deployments/Dockerfile
-      args:
-        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    <<: *backend-runtime
     container_name: contentflow_worker
     environment:
       CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
