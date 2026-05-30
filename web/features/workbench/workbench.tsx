@@ -10,12 +10,15 @@ import { SourceManager } from "@/features/sources/source-manager";
 import { ArticleWorkspace } from "@/features/articles/article-workspace";
 import { AIPanel } from "@/features/ai/ai-panel";
 import { CollectionRunPanel } from "@/features/collection-runs/collection-run-panel";
+import { DLQPanel } from "@/features/dlq/dlq-panel";
+import { SettingsPanel } from "@/features/settings/settings-panel";
 import { Badge, Button, ErrorBanner } from "@/components/ui";
 
-type View = "articles" | "sources" | "runs" | "ai" | "settings";
+type View = "articles" | "sources" | "runs" | "dlq" | "ai" | "settings";
+type AuthMode = "login" | "register";
 
-export function Workbench() {
-  const [session, setSession] = useState<SessionSnapshot | null>(() => readSession());
+export function Workbench({ initialAuthMode = "login" }: { initialAuthMode?: AuthMode }) {
+  const [session, setSession] = useState<SessionSnapshot | null>(null);
   const [view, setView] = useState<View>("articles");
   const [sources, setSources] = useState<Source[]>([]);
   const [selectedSourceID, setSelectedSourceID] = useState<number | null>(null);
@@ -41,6 +44,10 @@ export function Workbench() {
     [selectedSourceID, sources]
   );
 
+  useEffect(() => {
+    setSession(readSession());
+  }, []);
+
   function logout() {
     void api.logout().catch(() => undefined);
     clearSession();
@@ -51,7 +58,7 @@ export function Workbench() {
   }
 
   if (!session) {
-    return <AuthPanel onAuthenticated={setSession} />;
+    return <AuthPanel initialMode={initialAuthMode} onAuthenticated={setSession} />;
   }
 
   return (
@@ -77,6 +84,7 @@ export function Workbench() {
             ["articles", "文章"] as const,
             ["sources", "来源"] as const,
             ["runs", "采集记录"] as const,
+            ["dlq", "DLQ"] as const,
             ["ai", "AI"] as const,
             ["settings", "设置"] as const
           ].map(([id, label]) => (
@@ -119,22 +127,9 @@ export function Workbench() {
           {view === "runs" ? (
             <CollectionRunPanel source={selectedSource} latestRun={latestRun} onSelectSource={setSelectedSourceID} sources={sources} />
           ) : null}
+          {view === "dlq" ? <DLQPanel /> : null}
           {view === "ai" ? <AIPanel /> : null}
-          {view === "settings" ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-slate-950">设置</h2>
-              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-slate-500">API</dt>
-                  <dd className="font-medium text-slate-900">{process.env.NEXT_PUBLIC_CONTENTFLOW_API_BASE_URL ?? "默认后端地址"}</dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">账号</dt>
-                  <dd className="font-medium text-slate-900">{session.user?.display_name || session.user?.email}</dd>
-                </div>
-              </dl>
-            </section>
-          ) : null}
+          {view === "settings" ? <SettingsPanel user={session.user} /> : null}
         </main>
       </div>
     </div>

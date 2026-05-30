@@ -7,3 +7,5 @@ web/tsconfig.tsbuildinfo
 web/test-results/
 web/playwright-report/
 coverage/
+
+.env

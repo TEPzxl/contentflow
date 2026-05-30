@@ -23,6 +23,8 @@ type Repository interface {
 	ListEmbeddingsByUser(ctx context.Context, userID int64, model, version string, limit int) ([]EmbeddingRecord, error)
 	UpsertDigest(ctx context.Context, params UpsertDigestParams) (*DigestRecord, error)
 	FindDigest(ctx context.Context, userID int64, digestDate time.Time, promptVersion string) (*DigestRecord, error)
+	FindAISettings(ctx context.Context, userID int64) (*UserAISettingsRecord, error)
+	UpsertAISettings(ctx context.Context, params UpsertAISettingsParams) (*UserAISettingsRecord, error)
 }
 
 type EnqueueSummaryParams struct {
@@ -55,11 +57,27 @@ type UpsertDigestParams struct {
 	Now           time.Time
 }
 
+type UpsertAISettingsParams struct {
+	UserID           int64
+	Provider         string
+	BaseURL          string
+	Model            string
+	EmbeddingModel   string
+	APIKeyCiphertext []byte
+	APIKeyNonce      []byte
+	Now              time.Time
+}
+
 var (
-	ErrSummaryNotFound   = errors.New("summary not found")
-	ErrEmbeddingNotFound = errors.New("embedding not found")
-	ErrDigestNotFound    = errors.New("digest not found")
-	ErrNoSummaryJob      = errors.New("no summary job")
+	ErrSummaryNotFound                 = errors.New("summary not found")
+	ErrEmbeddingNotFound               = errors.New("embedding not found")
+	ErrDigestNotFound                  = errors.New("digest not found")
+	ErrAISettingsNotFound              = errors.New("ai settings not found")
+	ErrAISettingsEncryptionKeyRequired = errors.New("ai settings encryption key required")
+	ErrInvalidAIProvider               = errors.New("invalid ai provider")
+	ErrInvalidAIBaseURL                = errors.New("invalid ai base url")
+	ErrInvalidAIModel                  = errors.New("invalid ai model")
+	ErrNoSummaryJob                    = errors.New("no summary job")
 )
 
 type GormRepository struct {
@@ -322,6 +340,51 @@ func (r *GormRepository) FindDigest(ctx context.Context, userID int64, digestDat
 	return digestModelToRecord(model)
 }
 
+func (r *GormRepository) FindAISettings(ctx context.Context, userID int64) (*UserAISettingsRecord, error) {
+	var model UserAISettings
+	err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		First(&model).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAISettingsNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find ai settings: %w", err)
+	}
+	return aiSettingsModelToRecord(model), nil
+}
+
+func (r *GormRepository) UpsertAISettings(ctx context.Context, params UpsertAISettingsParams) (*UserAISettingsRecord, error) {
+	model := UserAISettings{
+		UserID:           params.UserID,
+		Provider:         params.Provider,
+		BaseURL:          params.BaseURL,
+		Model:            params.Model,
+		EmbeddingModel:   params.EmbeddingModel,
+		APIKeyCiphertext: params.APIKeyCiphertext,
+		APIKeyNonce:      params.APIKeyNonce,
+		CreatedAt:        params.Now,
+		UpdatedAt:        params.Now,
+	}
+	if err := r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"provider":           params.Provider,
+				"base_url":           params.BaseURL,
+				"model":              params.Model,
+				"embedding_model":    params.EmbeddingModel,
+				"api_key_ciphertext": params.APIKeyCiphertext,
+				"api_key_nonce":      params.APIKeyNonce,
+				"updated_at":         params.Now,
+			}),
+		}).
+		Create(&model).Error; err != nil {
+		return nil, fmt.Errorf("upsert ai settings: %w", err)
+	}
+	return r.FindAISettings(ctx, params.UserID)
+}
+
 func embeddingModelToRecord(model ArticleEmbedding) (*EmbeddingRecord, error) {
 	var vector []float64
 	if err := json.Unmarshal(model.EmbeddingJSON, &vector); err != nil {
@@ -359,6 +422,21 @@ func digestModelToRecord(model DailyDigest) (*DigestRecord, error) {
 		CreatedAt:     model.CreatedAt,
 		UpdatedAt:     model.UpdatedAt,
 	}, nil
+}
+
+func aiSettingsModelToRecord(model UserAISettings) *UserAISettingsRecord {
+	return &UserAISettingsRecord{
+		ID:               model.ID,
+		UserID:           model.UserID,
+		Provider:         model.Provider,
+		BaseURL:          model.BaseURL,
+		Model:            model.Model,
+		EmbeddingModel:   model.EmbeddingModel,
+		APIKeyCiphertext: model.APIKeyCiphertext,
+		APIKeyNonce:      model.APIKeyNonce,
+		CreatedAt:        model.CreatedAt,
+		UpdatedAt:        model.UpdatedAt,
+	}
 }
 
 func normalizeDate(value time.Time) time.Time {

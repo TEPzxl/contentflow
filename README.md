@@ -71,6 +71,20 @@ docker compose -f deployments/docker-compose.yaml up -d postgres redis kafka mig
 env CONTENTFLOW_CONFIG=configs/config.yaml CONTENTFLOW_APP_MODE=api go run ./cmd/server
 ```
 
+### 本地外部 AI
+
+默认 AI provider 是 `local`，使用内置 extractive assistant，不需要外部密钥。本地开发要接真实 OpenAI-compatible API 时，在 `.env` 中设置：
+
+```fish
+API_KEY=<your-api-key>
+base_url=https://api.openai.com/v1
+model=<chat-model>
+```
+
+也可以使用正式环境变量 `CONTENTFLOW_AI_API_KEY`、`CONTENTFLOW_AI_BASE_URL`、`CONTENTFLOW_AI_MODEL`。有 API key 时后端会启用 OpenAI-compatible chat completions 和 embeddings；密钥只从本地环境读取，不会写入仓库。生产形态下 AI 设置应由用户在页面中管理，本地 `.env` 仅用于开发阶段。
+
+用户在页面保存 AI API key 时，后端需要 `CONTENTFLOW_AI_SETTINGS_ENCRYPTION_KEY` 加密后入库。该值必须是 32 字节 base64 或 64 字符 hex；接口只返回 `has_api_key`，不会回显明文 key。
+
 ## 前端启动
 
 ```fish
@@ -111,6 +125,14 @@ npm --prefix web run build
 scripts/validate_k8s.sh
 scripts/validate_ci.sh
 ```
+
+后端已运行时，可以跑 API 冒烟测试：
+
+```fish
+scripts/ci.sh smoke-api
+```
+
+默认会创建一个临时用户和一个 `email` / `empty` source，验证健康检查、认证、source、采集、collection run、article 列表、RAG 搜索和 DLQ 列表接口。
 
 CI 覆盖后端测试、覆盖率、OpenAPI、Kubernetes 渲染校验、前端 audit/typecheck/lint/test/build 和 Docker 镜像发布 workflow 校验。
 

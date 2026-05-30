@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tepzxl/contentflow/internal/http/requestctx"
 	"github.com/tepzxl/contentflow/internal/module/collector"
+	"github.com/tepzxl/contentflow/internal/module/source"
 )
 
 func TestAsyncCollectionHandler_RequestCollection(t *testing.T) {
@@ -35,6 +36,20 @@ func TestAsyncCollectionHandler_RequestCollection(t *testing.T) {
 	}
 	if requester.reqs[0].UserID != 100 || requester.reqs[0].SourceID != 42 {
 		t.Fatalf("request = %#v", requester.reqs[0])
+	}
+}
+
+func TestAsyncCollectionHandler_RequestCollectionReturnsNotFoundForInaccessibleSource(t *testing.T) {
+	requester := &fakeCollectionRequester{err: source.ErrSourceNotAccessible}
+
+	router := newAsyncCollectionTestRouter(requester, 100)
+	w := performCollectionRequest(router, http.MethodPost, "/api/v1/sources/42/collect")
+
+	assertCollectorStatus(t, w, http.StatusNotFound)
+	assertCollectorErrorCode(t, w, "source_not_found")
+
+	if len(requester.reqs) != 1 {
+		t.Fatalf("request count = %d, want 1", len(requester.reqs))
 	}
 }
 

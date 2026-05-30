@@ -39,6 +39,11 @@ spec:
                 secretKeyRef:
                   name: contentflow-secret
                   key: jwt-secret
+            - name: CONTENTFLOW_AI_SETTINGS_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: contentflow-secret
+                  key: ai-settings-encryption-key
           volumeMounts:
             - name: config
               mountPath: /etc/contentflow

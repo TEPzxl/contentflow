@@ -196,7 +196,19 @@ func Run() error {
 	)
 	articleHandler := article.NewHandler(articleService)
 	aiRepo := ai.NewRepository(db)
-	aiService := ai.NewService(aiRepo, articleRepo, ai.NewExtractiveAssistant())
+	assistant, err := newConfiguredAssistant(cfg.AI, log)
+	if err != nil {
+		return err
+	}
+	aiSecretBox, err := newAISecretBox(cfg.AI.SettingsEncryptionKey)
+	if err != nil {
+		return err
+	}
+	aiOptions := []ai.Option{}
+	if aiSecretBox != nil {
+		aiOptions = append(aiOptions, ai.WithSecretBox(aiSecretBox))
+	}
+	aiService := ai.NewService(aiRepo, articleRepo, assistant, aiOptions...)
 	aiHandler := ai.NewHandler(aiService)
 	aiSummaryWorker := ai.NewSummaryWorker(aiService, ai.WithWorkerLogger(log))
 
@@ -215,6 +227,7 @@ func Run() error {
 		collectionOptions = append(collectionOptions, collector.WithObserver(metrics))
 	}
 	collectionOptions = append(collectionOptions, collector.WithLogger(log))
+	collectionOptions = append(collectionOptions, collector.WithSourceListCacheInvalidator(sourceListCache))
 	collectionOptions = append(collectionOptions, collector.WithCollectionLock(collector.NewRedisCollectionLock(redisClient)))
 	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService, collectionOptions...)
 	collectionHandler := collector.NewHandler(collectionService)
@@ -236,6 +249,7 @@ func Run() error {
 
 		outboxRepo := collectionjob.NewGormOutboxRepository(db)
 		dlqRepo := collectionjob.NewGormDLQRepository(db)
+		jobExecutionRepo := collectionjob.NewGormJobExecutionRepository(db)
 		jobProducer := collectionjob.NewOutboxProducer(outboxRepo)
 		outboxOptions := []collectionjob.OutboxDispatcherOption{
 			collectionjob.WithOutboxLogger(log),
@@ -248,7 +262,8 @@ func Run() error {
 		}
 		outboxDispatcher = collectionjob.NewOutboxDispatcher(outboxRepo, kafkaWriter, outboxOptions...)
 		scheduledCollector = jobProducer
-		asyncCollectionHandler := collector.NewAsyncHandler(jobProducer)
+		asyncCollectionRequester := collector.NewSourceValidatingRequester(sourceRepo, jobProducer)
+		asyncCollectionHandler := collector.NewAsyncHandler(asyncCollectionRequester)
 		dlqHandler := collectionjob.NewDLQHandler(collectionjob.NewDLQService(dlqRepo, kafkaWriter))
 		registerCollectionRoutes = func(api *gin.RouterGroup) {
 			collector.RegisterAsyncRoutes(api, asyncCollectionHandler, authRequired, collectRateLimit)
@@ -263,6 +278,7 @@ func Run() error {
 			collectionjob.WithRetryBackoff(cfg.Kafka.RetryBackoff),
 			collectionjob.WithWorkerLogger(log),
 			collectionjob.WithDLQRepository(dlqRepo),
+			collectionjob.WithJobExecutionRepository(jobExecutionRepo),
 		}
 		if metrics != nil {
 			workerOptions = append(workerOptions, collectionjob.WithJobObserver(metrics))
@@ -287,6 +303,9 @@ func Run() error {
 		}
 		if cfg.Observability.TracingEnabled {
 			routerOptions = append(routerOptions, contenthttp.WithTracing(cfg.Observability.ServiceName))
+		}
+		if len(cfg.CORS.AllowedOrigins) > 0 {
+			routerOptions = append(routerOptions, contenthttp.WithCORSAllowedOrigins(cfg.CORS.AllowedOrigins))
 		}
 
 		router := contenthttp.NewRouter(log, db, redisClient, func(api *gin.RouterGroup) {

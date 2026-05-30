@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, humanizeAPIError } from "@/lib/api/client";
-import type { CollectionRun, Source, SourcePayload, SourceType } from "@/lib/api/types";
+import type { CollectionRun, Source, SourcePayload, SourceType, SourceUpdatePayload } from "@/lib/api/types";
 import { Badge, Button, EmptyState, ErrorBanner, Panel, SelectInput, TextInput } from "@/components/ui";
 
 type SourceManagerProps = {
@@ -31,13 +31,34 @@ export function SourceManager({
     config: "{}"
   });
   const [editName, setEditName] = useState("");
+  const [editURL, setEditURL] = useState("");
+  const [editConfig, setEditConfig] = useState("{}");
+  const [editConfigDirty, setEditConfigDirty] = useState(false);
   const [editActive, setEditActive] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedSource) {
+      setEditName("");
+      setEditURL("");
+      setEditConfig("{}");
+      setEditConfigDirty(false);
+      setEditActive(true);
+      return;
+    }
+    setEditName(selectedSource.name);
+    setEditURL(selectedSource.url ?? "");
+    setEditConfig(JSON.stringify(selectedSource.config ?? {}, null, 2));
+    setEditConfigDirty(false);
+    setEditActive(selectedSource.is_active);
+  }, [selectedSource]);
 
   async function createSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setNotice("");
     setLoading(true);
     try {
       const payload: SourcePayload = {
@@ -62,13 +83,41 @@ export function SourceManager({
       return;
     }
     setError("");
+    setNotice("");
     setLoading(true);
     try {
-      await api.updateSource(selectedSource.id, {
-        name: editName || selectedSource.name,
+      const payload: SourceUpdatePayload = {
+        name: editName.trim() || selectedSource.name,
+        url: editURL.trim() || null,
         is_active: editActive
-      });
+      };
+      if (editConfigDirty) {
+        payload.config = parseConfig(editConfig);
+      }
+      await api.updateSource(selectedSource.id, payload);
       await onSourcesChanged();
+    } catch (err) {
+      setError(err instanceof SyntaxError ? "配置必须是合法 JSON 对象" : humanizeAPIError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteSelectedSource() {
+    if (!selectedSource) {
+      return;
+    }
+    if (!window.confirm(`确认删除来源「${selectedSource.name}」？`)) {
+      return;
+    }
+    setError("");
+    setNotice("");
+    setLoading(true);
+    try {
+      await api.deleteSource(selectedSource.id);
+      onSelectSource(null);
+      await onSourcesChanged();
+      setNotice("来源已删除");
     } catch (err) {
       setError(humanizeAPIError(err));
     } finally {
@@ -81,11 +130,17 @@ export function SourceManager({
       return;
     }
     setError("");
+    setNotice("");
     setLoading(true);
     try {
       const result = await api.collectSource(selectedSource.id);
       await onSourcesChanged();
-      onRunCreated(result.collection_run);
+      if (result.collection_run) {
+        onRunCreated(result.collection_run);
+      }
+      if (result.collection_task) {
+        setNotice(`采集任务已入队：${result.collection_task.task_id}`);
+      }
     } catch (err) {
       setError(humanizeAPIError(err));
     } finally {
@@ -95,14 +150,14 @@ export function SourceManager({
 
   function selectSource(source: Source) {
     onSelectSource(source.id);
-    setEditName(source.name);
-    setEditActive(source.is_active);
+    setNotice("");
   }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Panel title="来源管理">
         <ErrorBanner message={error} />
+        {notice ? <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div> : null}
         <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
           {sources.length === 0 ? (
             <EmptyState>还没有来源，先创建 RSS 或 email source。</EmptyState>
@@ -172,6 +227,21 @@ export function SourceManager({
                 <span>名称</span>
                 <TextInput value={editName || selectedSource.name} onChange={(event) => setEditName(event.target.value)} />
               </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>URL</span>
+                <TextInput value={editURL} onChange={(event) => setEditURL(event.target.value)} />
+              </label>
+              <label className="block space-y-1.5 text-sm font-medium text-slate-700">
+                <span>配置 JSON</span>
+                <textarea
+                  className="min-h-28 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  value={editConfig}
+                  onChange={(event) => {
+                    setEditConfig(event.target.value);
+                    setEditConfigDirty(true);
+                  }}
+                />
+              </label>
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
                   checked={editActive}
@@ -189,6 +259,9 @@ export function SourceManager({
                   手动采集
                 </Button>
               </div>
+              <Button className="w-full" type="button" variant="danger" onClick={deleteSelectedSource} disabled={loading}>
+                删除来源
+              </Button>
             </div>
           ) : (
             <EmptyState>选择一个来源后可以编辑和触发采集。</EmptyState>

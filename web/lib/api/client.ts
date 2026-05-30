@@ -5,9 +5,13 @@ import type {
   Article,
   ArticleEmbedding,
   ArticleSummary,
+  AISettings,
+  AISettingsPayload,
   AuthTokens,
+  CollectSourceResult,
   CollectionRun,
   DailyDigest,
+  DLQItem,
   ListResponse,
   LoginPayload,
   RAGAnswer,
@@ -20,7 +24,7 @@ import type {
 import { APIError } from "@/lib/api/types";
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   auth?: boolean;
   retryOnUnauthorized?: boolean;
@@ -124,8 +128,11 @@ export const api = {
   updateSource(id: number, payload: SourceUpdatePayload) {
     return request<{ source: Source }>(`/sources/${id}`, { method: "PATCH", body: payload });
   },
+  deleteSource(id: number) {
+    return request<{ message: string }>(`/sources/${id}`, { method: "DELETE" });
+  },
   collectSource(id: number) {
-    return request<{ collection_run: CollectionRun }>(`/sources/${id}/collect`, { method: "POST" });
+    return request<CollectSourceResult>(`/sources/${id}/collect`, { method: "POST" });
   },
   listCollectionRuns(sourceID: number, params: { status?: string; limit?: number; offset?: number } = {}) {
     return request<ListResponse<CollectionRun, "collection_runs">>(
@@ -180,6 +187,21 @@ export const api = {
   },
   ragSearch(payload: { query: string; limit?: number }) {
     return request<{ answer: RAGAnswer }>("/ai/rag-search", { method: "POST", body: payload });
+  },
+  getAISettings() {
+    return request<{ settings: AISettings }>("/ai/settings");
+  },
+  updateAISettings(payload: AISettingsPayload) {
+    return request<{ settings: AISettings }>("/ai/settings", { method: "PUT", body: payload });
+  },
+  listDLQ(params: { status?: string; limit?: number; offset?: number } = {}) {
+    return request<ListResponse<DLQItem, "items">>(withQuery("/collection-dlq", params));
+  },
+  replayDLQItem(id: number) {
+    return request<{ item: DLQItem }>(`/collection-dlq/${id}/replay`, { method: "POST" });
+  },
+  markDLQItemHandled(id: number) {
+    return request<{ item: DLQItem }>(`/collection-dlq/${id}/handled`, { method: "POST" });
   }
 };
 
@@ -199,7 +221,12 @@ export function humanizeAPIError(error: unknown) {
     summary_not_found: "摘要尚未生成",
     embedding_not_found: "向量尚未生成",
     digest_not_found: "日报尚未生成",
+    dlq_item_not_found: "DLQ 记录不存在或无权访问",
     empty_query: "请输入搜索问题",
+    ai_settings_encryption_key_required: "服务端尚未配置 AI 密钥加密 key",
+    invalid_ai_provider: "不支持该 AI provider",
+    invalid_ai_base_url: "Base URL 不可用或指向不安全地址",
+    invalid_ai_model: "请填写 OpenAI-compatible 的 Chat model",
     rate_limited: "操作过于频繁，请稍后再试"
   };
 

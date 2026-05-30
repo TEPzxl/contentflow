@@ -3,6 +3,7 @@ package collector
 import "time"
 
 type CollectedItem struct {
+	UserID      int64
 	SourceID    int64
 	SourceType  string
 	ExternalID  *string

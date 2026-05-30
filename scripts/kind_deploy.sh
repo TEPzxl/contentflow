@@ -3,7 +3,7 @@ set -euo pipefail
 
 cluster="${KIND_CLUSTER:-contentflow}"
 image="${CONTENTFLOW_IMAGE:-contentflow:local}"
-goproxy="${GOPROXY:-https://proxy.golang.org,direct}"
+goproxy="${GOPROXY:-https://goproxy.cn,direct}"
 
 if ! kind get clusters | grep -qx "${cluster}"; then
   kind create cluster --name "${cluster}" --config deployments/k8s/kind/kind-config.yaml

@@ -31,7 +31,7 @@ func TestDLQService_ListReplayAndMarkHandled(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	list, total, err := service.List(ctx, ListDLQItemsRequest{Status: DLQStatusPending, Limit: 20})
+	list, total, err := service.List(ctx, ListDLQItemsRequest{UserID: 100, Status: DLQStatusPending, Limit: 20})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -42,7 +42,7 @@ func TestDLQService_ListReplayAndMarkHandled(t *testing.T) {
 		t.Fatalf("list item = %#v", list.Items[0])
 	}
 
-	replayed, err := service.Replay(ctx, ReplayDLQItemRequest{ID: item.ID})
+	replayed, err := service.Replay(ctx, ReplayDLQItemRequest{UserID: 100, ID: item.ID})
 	if err != nil {
 		t.Fatalf("Replay() error = %v", err)
 	}
@@ -61,12 +61,70 @@ func TestDLQService_ListReplayAndMarkHandled(t *testing.T) {
 		t.Fatalf("replay event = %#v, want reset attempt", replayEvent)
 	}
 
-	handled, err := service.MarkHandled(ctx, MarkDLQHandledRequest{ID: item.ID})
+	handled, err := service.MarkHandled(ctx, MarkDLQHandledRequest{UserID: 100, ID: item.ID})
 	if err != nil {
 		t.Fatalf("MarkHandled() error = %v", err)
 	}
 	if handled.Item.Status != DLQStatusHandled {
 		t.Fatalf("handled status = %s, want %s", handled.Item.Status, DLQStatusHandled)
+	}
+}
+
+func TestDLQService_ScopesItemsByUser(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	repo := newMemoryDLQRepository()
+	writer := &fakeEventWriter{}
+	service := NewDLQService(repo, writer, WithDLQNow(func() time.Time { return now }))
+	ctx := context.Background()
+
+	own, err := repo.Create(ctx, CreateDLQItemParams{
+		Event: CollectionRequested{
+			TaskID:         "own-task",
+			UserID:         100,
+			SourceID:       42,
+			IdempotencyKey: "collection:source:42",
+			Attempt:        2,
+			RequestedAt:    now,
+		},
+		ErrorMessage: "own failure",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("Create() own error = %v", err)
+	}
+	other, err := repo.Create(ctx, CreateDLQItemParams{
+		Event: CollectionRequested{
+			TaskID:         "other-task",
+			UserID:         200,
+			SourceID:       99,
+			IdempotencyKey: "collection:source:99",
+			Attempt:        2,
+			RequestedAt:    now,
+		},
+		ErrorMessage: "other failure",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("Create() other error = %v", err)
+	}
+
+	list, total, err := service.List(ctx, ListDLQItemsRequest{UserID: 100, Status: DLQStatusPending, Limit: 20})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if total != 1 || len(list.Items) != 1 || list.Items[0].ID != own.ID {
+		t.Fatalf("scoped list total/items = %d/%#v, want only own item %d", total, list.Items, own.ID)
+	}
+
+	if _, err := service.Replay(ctx, ReplayDLQItemRequest{UserID: 100, ID: other.ID}); !errors.Is(err, ErrDLQItemNotFound) {
+		t.Fatalf("Replay() other user error = %v, want ErrDLQItemNotFound", err)
+	}
+	if len(writer.events) != 0 {
+		t.Fatalf("written events = %d, want 0", len(writer.events))
+	}
+
+	if _, err := service.MarkHandled(ctx, MarkDLQHandledRequest{UserID: 100, ID: other.ID}); !errors.Is(err, ErrDLQItemNotFound) {
+		t.Fatalf("MarkHandled() other user error = %v, want ErrDLQItemNotFound", err)
 	}
 }
 
@@ -105,6 +163,9 @@ func (r *memoryDLQRepository) Create(_ context.Context, params CreateDLQItemPara
 func (r *memoryDLQRepository) List(_ context.Context, params ListDLQItemsParams) ([]DLQItem, int64, error) {
 	var items []DLQItem
 	for _, item := range r.items {
+		if params.UserID > 0 && item.UserID != params.UserID {
+			continue
+		}
 		if params.Status == "" || item.Status == params.Status {
 			items = append(items, item)
 		}
@@ -112,12 +173,16 @@ func (r *memoryDLQRepository) List(_ context.Context, params ListDLQItemsParams)
 	return items, int64(len(items)), nil
 }
 
-func (r *memoryDLQRepository) FindByID(_ context.Context, id int64) (*DLQItem, error) {
+func (r *memoryDLQRepository) FindByUserIDAndID(_ context.Context, userID, id int64) (*DLQItem, error) {
 	item, ok := r.items[id]
-	if !ok {
-		return nil, errors.New("dlq item not found")
+	if !ok || item.UserID != userID {
+		return nil, ErrDLQItemNotFound
 	}
 	return &item, nil
+}
+
+func (r *memoryDLQRepository) FindByID(ctx context.Context, id int64) (*DLQItem, error) {
+	return r.FindByUserIDAndID(ctx, r.items[id].UserID, id)
 }
 
 func (r *memoryDLQRepository) MarkReplayed(_ context.Context, id int64, replayedAt time.Time) (*DLQItem, error) {

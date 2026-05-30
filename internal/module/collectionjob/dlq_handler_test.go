@@ -61,6 +61,46 @@ func TestDLQHandler_ListReplayAndMarkHandled(t *testing.T) {
 	}
 }
 
+func TestDLQHandler_ReturnsNotFoundForOtherUsersDLQItem(t *testing.T) {
+	now := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	repo := newMemoryDLQRepository()
+	writer := &fakeEventWriter{}
+	service := NewDLQService(repo, writer, WithDLQNow(func() time.Time { return now }))
+	if _, err := repo.Create(context.Background(), CreateDLQItemParams{
+		Event: CollectionRequested{
+			TaskID:         "other-task",
+			UserID:         200,
+			SourceID:       99,
+			IdempotencyKey: "collection:source:99",
+			Attempt:        2,
+			RequestedAt:    now,
+		},
+		ErrorMessage: "other user failure",
+		CreatedAt:    now,
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	router := newDLQTestRouter(service)
+
+	listResp := performDLQRequest(router, http.MethodGet, "/api/v1/collection-dlq?status=pending")
+	assertDLQStatus(t, listResp, http.StatusOK)
+	body := decodeDLQJSONBody(t, listResp.Body)
+	data := body["data"].(map[string]any)
+	if data["total"] != float64(0) {
+		t.Fatalf("total = %v, want 0", data["total"])
+	}
+
+	replayResp := performDLQRequest(router, http.MethodPost, "/api/v1/collection-dlq/1/replay")
+	assertDLQStatus(t, replayResp, http.StatusNotFound)
+	if len(writer.events) != 0 {
+		t.Fatalf("written events = %d, want 0", len(writer.events))
+	}
+
+	handledResp := performDLQRequest(router, http.MethodPost, "/api/v1/collection-dlq/1/handled")
+	assertDLQStatus(t, handledResp, http.StatusNotFound)
+}
+
 func newDLQTestRouter(service *DLQService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

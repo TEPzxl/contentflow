@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	OutboxStatusPending = "pending"
-	OutboxStatusSent    = "sent"
-	OutboxStatusFailed  = "failed"
+	OutboxStatusPending    = "pending"
+	OutboxStatusProcessing = "processing"
+	OutboxStatusSent       = "sent"
+	OutboxStatusFailed     = "failed"
 )
 
 type OutboxEvent struct {
@@ -25,6 +26,8 @@ type OutboxEvent struct {
 	Attempts      int
 	NextAttemptAt time.Time
 	LastError     string
+	ClaimID       string
+	LockedUntil   time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	SentAt        *time.Time
@@ -40,9 +43,10 @@ type CreateOutboxEventParams struct {
 type OutboxRepository interface {
 	Create(ctx context.Context, params CreateOutboxEventParams) (*OutboxEvent, error)
 	ListReady(ctx context.Context, now time.Time, limit int) ([]OutboxEvent, int64, error)
+	ClaimReady(ctx context.Context, now time.Time, limit int, claimID string, lockedUntil time.Time) ([]OutboxEvent, int64, error)
 	FindByID(ctx context.Context, id int64) (*OutboxEvent, error)
-	MarkSent(ctx context.Context, id int64, sentAt time.Time) (*OutboxEvent, error)
-	MarkFailed(ctx context.Context, id int64, attempts int, nextAttemptAt time.Time, lastError string) (*OutboxEvent, error)
+	MarkSent(ctx context.Context, id int64, claimID string, sentAt time.Time) (*OutboxEvent, error)
+	MarkFailed(ctx context.Context, id int64, claimID string, attempts int, nextAttemptAt time.Time, lastError string) (*OutboxEvent, error)
 }
 
 type OutboxDispatcher struct {
@@ -54,6 +58,7 @@ type OutboxDispatcher struct {
 	batchSize int
 	backoff   time.Duration
 	interval  time.Duration
+	claimTTL  time.Duration
 }
 
 type OutboxDispatcherOption func(*OutboxDispatcher)
@@ -90,6 +95,14 @@ func WithOutboxInterval(interval time.Duration) OutboxDispatcherOption {
 	}
 }
 
+func WithOutboxClaimTTL(claimTTL time.Duration) OutboxDispatcherOption {
+	return func(d *OutboxDispatcher) {
+		if claimTTL > 0 {
+			d.claimTTL = claimTTL
+		}
+	}
+}
+
 func WithOutboxLogger(logger *slog.Logger) OutboxDispatcherOption {
 	return func(d *OutboxDispatcher) {
 		if logger != nil {
@@ -113,6 +126,7 @@ func NewOutboxDispatcher(repo OutboxRepository, writer EventWriter, opts ...Outb
 		batchSize: 100,
 		backoff:   time.Minute,
 		interval:  time.Second,
+		claimTTL:  5 * time.Minute,
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -139,9 +153,10 @@ func (d *OutboxDispatcher) Run(ctx context.Context) error {
 
 func (d *OutboxDispatcher) DispatchReady(ctx context.Context) error {
 	now := d.now()
-	events, _, err := d.repo.ListReady(ctx, now, d.batchSize)
+	claimID := randomTaskID()
+	events, _, err := d.repo.ClaimReady(ctx, now, d.batchSize, claimID, now.Add(d.claimTTL))
 	if err != nil {
-		return fmt.Errorf("list ready outbox events: %w", err)
+		return fmt.Errorf("claim ready outbox events: %w", err)
 	}
 
 	for _, outboxEvent := range events {
@@ -154,14 +169,14 @@ func (d *OutboxDispatcher) DispatchReady(ctx context.Context) error {
 			d.observeJob(ctx, outboxEvent.Topic, "failed")
 			nextAttempts := outboxEvent.Attempts + 1
 			nextAttemptAt := now.Add(d.retryBackoff(nextAttempts))
-			if _, markErr := d.repo.MarkFailed(ctx, outboxEvent.ID, nextAttempts, nextAttemptAt, err.Error()); markErr != nil {
+			if _, markErr := d.repo.MarkFailed(ctx, outboxEvent.ID, claimID, nextAttempts, nextAttemptAt, err.Error()); markErr != nil {
 				return fmt.Errorf("mark outbox failed: %w", markErr)
 			}
 			continue
 		}
 		d.observeJob(ctx, outboxEvent.Topic, "success")
 
-		if _, err := d.repo.MarkSent(ctx, outboxEvent.ID, now); err != nil {
+		if _, err := d.repo.MarkSent(ctx, outboxEvent.ID, claimID, now); err != nil {
 			return fmt.Errorf("mark outbox sent: %w", err)
 		}
 	}

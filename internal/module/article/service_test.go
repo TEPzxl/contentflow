@@ -328,6 +328,36 @@ func TestArticleService_SaveCollectedItems(t *testing.T) {
 		})
 	}
 }
+
+func TestArticleService_SaveCollectedItemsInvalidatesUserListCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ctx := context.Background()
+	repo := articlemocks.NewMockRepository(ctrl)
+	cache := &fakeArticleListCache{}
+	item := sampleCollectedItem()
+	item.UserID = 100
+
+	repo.EXPECT().
+		CreateIfNotExists(ctx, gomock.AssignableToTypeOf(&article.Article{})).
+		Return(true, nil)
+
+	svc := article.NewService(
+		repo,
+		article.WithNow(func() time.Time { return fixedTime() }),
+		article.WithListCache(cache, time.Minute),
+	)
+
+	_, err := svc.SaveCollectedItems(ctx, []collector.CollectedItem{item})
+	if err != nil {
+		t.Fatalf("SaveCollectedItems() error = %v", err)
+	}
+	if cache.deletes != 1 {
+		t.Fatalf("cache deletes = %d, want 1", cache.deletes)
+	}
+}
+
 func strPtr(s string) *string {
 	return &s
 }

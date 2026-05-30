@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/tepzxl/contentflow/internal/module/collector"
@@ -33,16 +34,18 @@ type JobObserver interface {
 }
 
 type Worker struct {
-	reader      EventReader
-	writer      EventWriter
-	service     CollectionService
-	logger      *slog.Logger
-	observer    JobObserver
-	dlqRepo     DLQRepository
-	now         func() time.Time
-	sleep       func(ctx context.Context, d time.Duration) error
-	maxAttempts int
-	backoffBase time.Duration
+	reader        EventReader
+	writer        EventWriter
+	service       CollectionService
+	logger        *slog.Logger
+	observer      JobObserver
+	dlqRepo       DLQRepository
+	executionRepo JobExecutionRepository
+	now           func() time.Time
+	sleep         func(ctx context.Context, d time.Duration) error
+	maxAttempts   int
+	backoffBase   time.Duration
+	claimTTL      time.Duration
 }
 
 type WorkerOption func(*Worker)
@@ -99,6 +102,12 @@ func WithDLQRepository(repo DLQRepository) WorkerOption {
 	}
 }
 
+func WithJobExecutionRepository(repo JobExecutionRepository) WorkerOption {
+	return func(w *Worker) {
+		w.executionRepo = repo
+	}
+}
+
 func NewWorker(reader EventReader, writer EventWriter, service CollectionService, opts ...WorkerOption) *Worker {
 	w := &Worker{
 		reader:      reader,
@@ -109,6 +118,7 @@ func NewWorker(reader EventReader, writer EventWriter, service CollectionService
 		sleep:       sleepContext,
 		maxAttempts: 3,
 		backoffBase: time.Minute,
+		claimTTL:    10 * time.Minute,
 	}
 
 	for _, opt := range opts {
@@ -130,6 +140,9 @@ func (w *Worker) Run(ctx context.Context) error {
 
 		if err := w.HandleMessage(ctx, msg); err != nil {
 			w.logger.Warn("handle collection job failed", slog.String("error", err.Error()))
+			if !errors.Is(err, ErrInvalidMessage) {
+				continue
+			}
 		}
 
 		if err := w.reader.Commit(ctx, msg); err != nil {
@@ -143,9 +156,20 @@ func (w *Worker) HandleMessage(ctx context.Context, msg Message) error {
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidMessage, err)
 	}
+	if err := validateCollectionRequestedMessage(msg, event); err != nil {
+		return err
+	}
 
 	if err := w.waitUntilNextAttempt(ctx, event); err != nil {
 		return err
+	}
+
+	claimID, shouldProcess, err := w.claimExecution(ctx, event)
+	if err != nil {
+		return err
+	}
+	if !shouldProcess {
+		return nil
 	}
 
 	resp, err := w.service.CollectSource(ctx, collector.CollectSourceRequest{
@@ -153,11 +177,11 @@ func (w *Worker) HandleMessage(ctx context.Context, msg Message) error {
 		SourceID: event.SourceID,
 	})
 	if err != nil {
-		return w.handleFailed(ctx, event, err)
+		return w.handleFailed(ctx, event, claimID, err)
 	}
 
 	if resp == nil {
-		return nil
+		return w.markExecutionSucceeded(ctx, event.TaskID, claimID, 0)
 	}
 
 	completed := CollectionCompleted{
@@ -172,10 +196,64 @@ func (w *Worker) HandleMessage(ctx context.Context, msg Message) error {
 		OriginalRequested: event.RequestedAt,
 	}
 
-	return w.writeJSON(ctx, TopicCollectionCompleted, event.IdempotencyKey, completed)
+	if err := w.writeJSON(ctx, TopicCollectionCompleted, event.IdempotencyKey, completed); err != nil {
+		return err
+	}
+	return w.markExecutionSucceeded(ctx, event.TaskID, claimID, resp.RunID)
 }
 
-func (w *Worker) handleFailed(ctx context.Context, event CollectionRequested, cause error) error {
+func validateCollectionRequestedMessage(msg Message, event CollectionRequested) error {
+	if msg.Topic != "" && msg.Topic != TopicCollectionRequested {
+		return fmt.Errorf("%w: unexpected topic %q", ErrInvalidMessage, msg.Topic)
+	}
+	if strings.TrimSpace(event.TaskID) == "" {
+		return fmt.Errorf("%w: missing task_id", ErrInvalidMessage)
+	}
+	if event.UserID <= 0 {
+		return fmt.Errorf("%w: invalid user_id", ErrInvalidMessage)
+	}
+	if event.SourceID <= 0 {
+		return fmt.Errorf("%w: invalid source_id", ErrInvalidMessage)
+	}
+	if strings.TrimSpace(event.IdempotencyKey) == "" {
+		return fmt.Errorf("%w: missing idempotency_key", ErrInvalidMessage)
+	}
+	if event.Attempt < 0 {
+		return fmt.Errorf("%w: invalid attempt", ErrInvalidMessage)
+	}
+	if event.RequestedAt.IsZero() {
+		return fmt.Errorf("%w: missing requested_at", ErrInvalidMessage)
+	}
+	if len(msg.Key) > 0 && string(msg.Key) != event.IdempotencyKey {
+		return fmt.Errorf("%w: message key does not match idempotency_key", ErrInvalidMessage)
+	}
+	return nil
+}
+
+func (w *Worker) claimExecution(ctx context.Context, event CollectionRequested) (string, bool, error) {
+	if w.executionRepo == nil {
+		return "", true, nil
+	}
+	now := w.now()
+	claimID := randomTaskID()
+	_, shouldProcess, err := w.executionRepo.Claim(ctx, event, claimID, now, now.Add(w.claimTTL))
+	if err != nil {
+		return "", false, fmt.Errorf("claim collection job execution: %w", err)
+	}
+	return claimID, shouldProcess, nil
+}
+
+func (w *Worker) markExecutionSucceeded(ctx context.Context, taskID string, claimID string, runID int64) error {
+	if w.executionRepo == nil {
+		return nil
+	}
+	if _, err := w.executionRepo.MarkSucceeded(ctx, taskID, claimID, runID, w.now()); err != nil {
+		return fmt.Errorf("mark collection job execution succeeded: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) handleFailed(ctx context.Context, event CollectionRequested, claimID string, cause error) error {
 	failed := CollectionFailed{
 		TaskID:            event.TaskID,
 		SourceID:          event.SourceID,
@@ -191,12 +269,38 @@ func (w *Worker) handleFailed(ctx context.Context, event CollectionRequested, ca
 
 	nextAttempt := event.Attempt + 1
 	if IsPermanentError(cause) || nextAttempt >= w.maxAttempts {
-		return w.writeDLQ(ctx, event, cause)
+		if err := w.writeDLQ(ctx, event, cause); err != nil {
+			return err
+		}
+		return w.markExecutionDLQ(ctx, event.TaskID, claimID, cause)
 	}
 
 	event.Attempt = nextAttempt
 	event.NextAttemptAt = w.now().Add(w.retryBackoff(nextAttempt))
-	return w.writeJSON(ctx, TopicCollectionRequested, event.IdempotencyKey, event)
+	if err := w.writeJSON(ctx, TopicCollectionRequested, event.IdempotencyKey, event); err != nil {
+		return err
+	}
+	return w.markExecutionFailed(ctx, event.TaskID, claimID, event.Attempt-1, cause)
+}
+
+func (w *Worker) markExecutionFailed(ctx context.Context, taskID string, claimID string, attempt int, cause error) error {
+	if w.executionRepo == nil {
+		return nil
+	}
+	if _, err := w.executionRepo.MarkFailed(ctx, taskID, claimID, attempt, cause.Error(), w.now()); err != nil {
+		return fmt.Errorf("mark collection job execution failed: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) markExecutionDLQ(ctx context.Context, taskID string, claimID string, cause error) error {
+	if w.executionRepo == nil {
+		return nil
+	}
+	if _, err := w.executionRepo.MarkDLQ(ctx, taskID, claimID, cause.Error(), w.now()); err != nil {
+		return fmt.Errorf("mark collection job execution dlq: %w", err)
+	}
+	return nil
 }
 
 func (w *Worker) writeDLQ(ctx context.Context, event CollectionRequested, cause error) error {

@@ -54,6 +54,7 @@ func (r *GormRefreshTokenRepository) FindValidByHash(ctx context.Context, tokenH
 func (r *GormRefreshTokenRepository) RevokeByHash(ctx context.Context, tokenHash string, revokedAt time.Time) error {
 	rowsAffected, err := gorm.G[RefreshToken](r.db).
 		Where("token_hash = ?", tokenHash).
+		Where("revoked_at IS NULL").
 		Update(ctx, "revoked_at", revokedAt)
 	if err != nil {
 		return fmt.Errorf("revoke refresh token by hash: %w", err)

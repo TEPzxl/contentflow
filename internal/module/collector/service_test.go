@@ -441,6 +441,68 @@ func TestCollectionService_CollectSource(t *testing.T) {
 	}
 }
 
+func TestCollectionService_CollectSourceInvalidatesSourceListCacheAfterStatusUpdate(t *testing.T) {
+	now := fixedTime()
+	ctx := context.Background()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	sourceRepo := sourcemocks.NewMockRepository(ctrl)
+	runRepo := collectormocks.NewMockRunRepository(ctrl)
+	articleWriter := collectormocks.NewMockArticleWriter(ctrl)
+	cache := &fakeSourceListCacheInvalidator{}
+	items := sampleCollectedItems()
+
+	sourceRepo.EXPECT().
+		FindByUserIDAndID(ctx, int64(100), int64(1)).
+		Return(sampleSourceModel(), nil)
+	runRepo.EXPECT().
+		Create(ctx, gomock.AssignableToTypeOf(&collector.CollectionRun{})).
+		DoAndReturn(func(_ context.Context, run *collector.CollectionRun) error {
+			run.ID = 12
+			return nil
+		})
+	articleWriter.EXPECT().
+		SaveCollectedItems(ctx, items).
+		Return(&collector.ArticleWriteResult{InsertedCount: 2}, nil)
+	runRepo.EXPECT().
+		Finish(ctx, collector.FinishRunParams{
+			RunID:           12,
+			Status:          collector.RunStatusSuccess,
+			FinishedAt:      now,
+			FetchedCount:    len(items),
+			InsertedCount:   2,
+			DuplicatedCount: 0,
+			ErrorMessage:    "",
+		}).
+		Return(nil)
+	sourceRepo.EXPECT().
+		Update(ctx, gomock.AssignableToTypeOf(&source.Source{})).
+		Return(nil)
+
+	registry, err := collector.NewRegistry(fakeCollector{sourceType: source.TypeRSS, items: items})
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	svc := collector.NewService(
+		sourceRepo,
+		runRepo,
+		registry,
+		articleWriter,
+		collector.WithNow(func() time.Time { return now }),
+		collector.WithSourceListCacheInvalidator(cache),
+	)
+
+	_, err = svc.CollectSource(ctx, collector.CollectSourceRequest{UserID: 100, SourceID: 1})
+	if err != nil {
+		t.Fatalf("CollectSource() error = %v", err)
+	}
+	if cache.deletes != 1 || cache.userID != 100 {
+		t.Fatalf("cache delete = %d user %d, want once for user 100", cache.deletes, cache.userID)
+	}
+}
+
 func TestCollectionService_CollectSource_returnsInProgressWhenLockNotAcquired(t *testing.T) {
 	now := fixedTime()
 	ctx := context.Background()
@@ -605,6 +667,17 @@ func TestCollectionService_GetCollectionRun(t *testing.T) {
 	if resp.Run.FinishedAt == nil || *resp.Run.FinishedAt == "" {
 		t.Fatalf("Run.FinishedAt = %v, want non-empty", resp.Run.FinishedAt)
 	}
+}
+
+type fakeSourceListCacheInvalidator struct {
+	deletes int
+	userID  int64
+}
+
+func (f *fakeSourceListCacheInvalidator) DeleteUser(_ context.Context, userID int64) error {
+	f.deletes++
+	f.userID = userID
+	return nil
 }
 
 type fakeCollectionLock struct {

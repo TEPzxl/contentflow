@@ -12,6 +12,105 @@ import (
 
 var errCollect = errors.New("collect failed")
 
+func TestWorker_RunDoesNotCommitFailedHandling(t *testing.T) {
+	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
+	reader := &fakeEventReader{messages: []Message{{
+		Topic: TopicCollectionRequested,
+		Key:   []byte("collection:source:42"),
+		Value: marshalJSON(t, CollectionRequested{
+			TaskID:         "task-commit",
+			UserID:         100,
+			SourceID:       42,
+			IdempotencyKey: "collection:source:42",
+			RequestedAt:    now,
+		}),
+	}}}
+	worker := NewWorker(
+		reader,
+		&fakeEventWriter{err: errors.New("kafka unavailable")},
+		&fakeCollectionService{resp: &collector.CollectSourceResponse{RunID: 11, SourceID: 42, Status: collector.RunStatusSuccess}},
+		WithWorkerNow(func() time.Time { return now }),
+	)
+
+	if err := worker.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if reader.commits != 0 {
+		t.Fatalf("commits = %d, want 0", reader.commits)
+	}
+}
+
+func TestWorker_HandleMessageRejectsInvalidPayload(t *testing.T) {
+	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name  string
+		value []byte
+	}{
+		{
+			name:  "missing task id",
+			value: marshalJSON(t, CollectionRequested{UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:42", RequestedAt: now}),
+		},
+		{
+			name:  "missing user id",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", SourceID: 42, IdempotencyKey: "collection:source:42", RequestedAt: now}),
+		},
+		{
+			name:  "missing source id",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, IdempotencyKey: "collection:source:42", RequestedAt: now}),
+		},
+		{
+			name:  "missing idempotency key",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, RequestedAt: now}),
+		},
+		{
+			name:  "negative attempt",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:42", Attempt: -1, RequestedAt: now}),
+		},
+		{
+			name:  "missing requested at",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:42"}),
+		},
+		{
+			name:  "message key does not match idempotency key",
+			value: marshalJSON(t, CollectionRequested{TaskID: "task-invalid", UserID: 100, SourceID: 42, IdempotencyKey: "collection:source:99", RequestedAt: now}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writer := &fakeEventWriter{}
+			service := &fakeCollectionService{}
+			repo := newMemoryJobExecutionRepository()
+			worker := NewWorker(
+				nil,
+				writer,
+				service,
+				WithWorkerNow(func() time.Time { return now }),
+				WithJobExecutionRepository(repo),
+			)
+
+			err := worker.HandleMessage(context.Background(), Message{
+				Topic: TopicCollectionRequested,
+				Key:   []byte("collection:source:42"),
+				Value: tt.value,
+			})
+			if !errors.Is(err, ErrInvalidMessage) {
+				t.Fatalf("HandleMessage() error = %v, want %v", err, ErrInvalidMessage)
+			}
+			if repo.claims != 0 {
+				t.Fatalf("claim calls = %d, want 0", repo.claims)
+			}
+			if len(service.reqs) != 0 {
+				t.Fatalf("service calls = %d, want 0", len(service.reqs))
+			}
+			if len(writer.events) != 0 {
+				t.Fatalf("written events = %d, want 0", len(writer.events))
+			}
+		})
+	}
+}
+
 func TestWorker_HandleMessage(t *testing.T) {
 	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
 
@@ -199,6 +298,55 @@ func TestWorker_HandleMessage(t *testing.T) {
 	}
 }
 
+func TestWorker_HandleMessage_skipsCompletedTask(t *testing.T) {
+	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
+	repo := newMemoryJobExecutionRepository()
+	if err := repo.seed(JobExecution{
+		TaskID:         "task-duplicate",
+		IdempotencyKey: "collection:source:42",
+		SourceID:       42,
+		Status:         JobExecutionStatusSucceeded,
+		RunID:          11,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}); err != nil {
+		t.Fatalf("seed execution: %v", err)
+	}
+	writer := &fakeEventWriter{}
+	service := &fakeCollectionService{}
+	worker := NewWorker(
+		nil,
+		writer,
+		service,
+		WithWorkerNow(func() time.Time { return now }),
+		WithJobExecutionRepository(repo),
+	)
+
+	err := worker.HandleMessage(context.Background(), Message{
+		Topic: TopicCollectionRequested,
+		Key:   []byte("collection:source:42"),
+		Value: marshalJSON(t, CollectionRequested{
+			TaskID:         "task-duplicate",
+			UserID:         100,
+			SourceID:       42,
+			IdempotencyKey: "collection:source:42",
+			RequestedAt:    now,
+		}),
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage() error = %v", err)
+	}
+	if repo.claims != 1 {
+		t.Fatalf("claim calls = %d, want 1", repo.claims)
+	}
+	if len(service.reqs) != 0 {
+		t.Fatalf("service calls = %d, want 0", len(service.reqs))
+	}
+	if len(writer.events) != 0 {
+		t.Fatalf("written events = %d, want 0", len(writer.events))
+	}
+}
+
 func TestWorker_HandleMessage_waitsUntilNextAttempt(t *testing.T) {
 	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
 	event := CollectionRequested{
@@ -284,6 +432,102 @@ func TestWorker_HandleMessage_persistsDLQItem(t *testing.T) {
 	if items[0].TaskID != "task-dlq" || items[0].ErrorMessage != errCollect.Error() {
 		t.Fatalf("dlq item = %#v", items[0])
 	}
+}
+
+type fakeEventReader struct {
+	messages []Message
+	commits  int
+	reads    int
+}
+
+func (r *fakeEventReader) Read(ctx context.Context) (Message, error) {
+	if r.reads >= len(r.messages) {
+		return Message{}, context.Canceled
+	}
+	msg := r.messages[r.reads]
+	r.reads++
+	return msg, nil
+}
+
+func (r *fakeEventReader) Commit(ctx context.Context, msg Message) error {
+	r.commits++
+	return nil
+}
+
+func (r *fakeEventReader) Close() error {
+	return nil
+}
+
+type memoryJobExecutionRepository struct {
+	executions map[string]JobExecution
+	claims     int
+}
+
+func newMemoryJobExecutionRepository() *memoryJobExecutionRepository {
+	return &memoryJobExecutionRepository{executions: map[string]JobExecution{}}
+}
+
+func (r *memoryJobExecutionRepository) seed(execution JobExecution) error {
+	if execution.TaskID == "" {
+		return ErrInvalidMessage
+	}
+	r.executions[execution.TaskID] = execution
+	return nil
+}
+
+func (r *memoryJobExecutionRepository) Claim(ctx context.Context, event CollectionRequested, claimID string, now time.Time, lockedUntil time.Time) (*JobExecution, bool, error) {
+	r.claims++
+	execution, ok := r.executions[event.TaskID]
+	if ok && execution.Status == JobExecutionStatusSucceeded {
+		return &execution, false, nil
+	}
+	execution = JobExecution{
+		TaskID:         event.TaskID,
+		IdempotencyKey: event.IdempotencyKey,
+		SourceID:       event.SourceID,
+		Status:         JobExecutionStatusProcessing,
+		Attempt:        event.Attempt,
+		ClaimID:        claimID,
+		LockedUntil:    lockedUntil,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	r.executions[event.TaskID] = execution
+	return &execution, true, nil
+}
+
+func (r *memoryJobExecutionRepository) MarkSucceeded(ctx context.Context, taskID string, claimID string, runID int64, now time.Time) (*JobExecution, error) {
+	execution := r.executions[taskID]
+	execution.Status = JobExecutionStatusSucceeded
+	execution.RunID = runID
+	execution.ClaimID = ""
+	execution.LockedUntil = time.Time{}
+	execution.UpdatedAt = now
+	r.executions[taskID] = execution
+	return &execution, nil
+}
+
+func (r *memoryJobExecutionRepository) MarkFailed(ctx context.Context, taskID string, claimID string, attempt int, errMessage string, now time.Time) (*JobExecution, error) {
+	execution := r.executions[taskID]
+	execution.Status = JobExecutionStatusFailed
+	execution.Attempt = attempt
+	execution.LastError = errMessage
+	execution.ClaimID = ""
+	execution.LockedUntil = time.Time{}
+	execution.UpdatedAt = now
+	r.executions[taskID] = execution
+	return &execution, nil
+}
+
+func (r *memoryJobExecutionRepository) MarkDLQ(ctx context.Context, taskID string, claimID string, errMessage string, now time.Time) (*JobExecution, error) {
+	execution := r.executions[taskID]
+	execution.Status = JobExecutionStatusDLQ
+	execution.LastError = errMessage
+	execution.ClaimID = ""
+	execution.LockedUntil = time.Time{}
+	execution.UpdatedAt = now
+	r.executions[taskID] = execution
+	return &execution, nil
 }
 
 type fakeCollectionService struct {

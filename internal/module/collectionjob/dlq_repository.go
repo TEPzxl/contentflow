@@ -75,6 +75,9 @@ func (r *GormDLQRepository) List(ctx context.Context, params ListDLQItemsParams)
 	offset := normalizeOffset(params.Offset)
 
 	query := r.db.WithContext(ctx).Model(&DLQItemModel{})
+	if params.UserID > 0 {
+		query = query.Where("user_id = ?", params.UserID)
+	}
 	if params.Status != "" {
 		query = query.Where("status = ?", params.Status)
 	}
@@ -105,15 +108,23 @@ func (r *GormDLQRepository) List(ctx context.Context, params ListDLQItemsParams)
 	return items, total, nil
 }
 
-func (r *GormDLQRepository) FindByID(ctx context.Context, id int64) (*DLQItem, error) {
+func (r *GormDLQRepository) FindByUserIDAndID(ctx context.Context, userID, id int64) (*DLQItem, error) {
 	var model DLQItemModel
-	if err := r.db.WithContext(ctx).First(&model, "id = ?", id).Error; err != nil {
+	query := r.db.WithContext(ctx).Where("id = ?", id)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	if err := query.First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrDLQItemNotFound
 		}
 		return nil, fmt.Errorf("find dlq item: %w", err)
 	}
 	return dlqModelToItem(model)
+}
+
+func (r *GormDLQRepository) FindByID(ctx context.Context, id int64) (*DLQItem, error) {
+	return r.FindByUserIDAndID(ctx, 0, id)
 }
 
 func (r *GormDLQRepository) MarkReplayed(ctx context.Context, id int64, replayedAt time.Time) (*DLQItem, error) {

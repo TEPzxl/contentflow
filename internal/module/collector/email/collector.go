@@ -253,6 +253,7 @@ func toCollectedItem(src *source.Source, msg Message) (collector.CollectedItem, 
 	author := strings.TrimSpace(msg.From)
 
 	return collector.CollectedItem{
+		UserID:      src.UserID,
 		SourceID:    src.ID,
 		SourceType:  src.Type,
 		ExternalID:  externalID,

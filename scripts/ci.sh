@@ -63,13 +63,16 @@ case "${cmd}" in
   benchmark)
     go test -run '^$' -bench=. -benchmem ./internal/module/article ./internal/module/collector/rss ./internal/module/collectionjob
     ;;
+  smoke-api)
+    scripts/smoke_api.sh
+    ;;
   integration)
     go test -count=1 -p=1 -tags=integration "${GO_TEST_INTEGRATION_PACKAGES[@]}"
     ;;
   docker-build)
-    GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \
+    GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
       docker compose -f deployments/docker-compose.yaml build \
-      --build-arg GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}" \
+      --build-arg GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
       backend
     docker compose -f deployments/docker-compose.yaml build frontend
     ;;
@@ -87,7 +90,7 @@ case "${cmd}" in
     "$0" web-build
     ;;
   *)
-    echo "Usage: $0 [tidy-check|test|coverage|vet|lint|openapi|migrations|k8s|web-audit|web-typecheck|web-lint|web-test|web-build|benchmark|integration|docker-build|all]" >&2
+    echo "Usage: $0 [tidy-check|test|coverage|vet|lint|openapi|migrations|k8s|web-audit|web-typecheck|web-lint|web-test|web-build|benchmark|smoke-api|integration|docker-build|all]" >&2
     exit 1
     ;;
 esac

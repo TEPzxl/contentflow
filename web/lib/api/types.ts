@@ -91,6 +91,32 @@ export type CollectionRun = {
   error_message: string;
 };
 
+export type CollectionTask = {
+  task_id: string;
+  source_id: number;
+  status: string;
+};
+
+export type CollectSourceResult = {
+  collection_run?: CollectionRun;
+  collection_task?: CollectionTask;
+};
+
+export type DLQItem = {
+  id: number;
+  task_id: string;
+  user_id: number;
+  source_id: number;
+  idempotency_key: string;
+  attempt: number;
+  error_message: string;
+  status: "pending" | "replayed" | "handled" | string;
+  created_at: string;
+  updated_at: string;
+  replayed_at?: string | null;
+  handled_at?: string | null;
+};
+
 export type ArticleSummary = {
   id: number;
   article_id: number;
@@ -146,6 +172,23 @@ export type RAGAnswer = {
     url?: string | null;
     snippet: string;
   }>;
+};
+
+export type AISettings = {
+  provider: "local" | "openai-compatible" | string;
+  base_url: string;
+  model: string;
+  embedding_model: string;
+  has_api_key: boolean;
+  updated_at?: string;
+};
+
+export type AISettingsPayload = {
+  provider: string;
+  base_url: string;
+  model: string;
+  embedding_model: string;
+  api_key?: string;
 };
 
 export type ListResponse<TItem, TKey extends string> = Record<TKey, TItem[]> & {

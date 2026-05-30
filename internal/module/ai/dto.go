@@ -61,6 +61,15 @@ type RAGAnswerDTO struct {
 	Citations     []CitationDTO `json:"citations"`
 }
 
+type AISettingsDTO struct {
+	Provider       string    `json:"provider"`
+	BaseURL        string    `json:"base_url"`
+	Model          string    `json:"model"`
+	EmbeddingModel string    `json:"embedding_model"`
+	HasAPIKey      bool      `json:"has_api_key"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 type RequestSummaryRequest struct {
 	UserID     int64
 	ArticleID  int64
@@ -97,4 +106,17 @@ type RAGSearchRequest struct {
 	UserID int64
 	Query  string
 	Limit  int
+}
+
+type GetAISettingsRequest struct {
+	UserID int64
+}
+
+type UpdateAISettingsRequest struct {
+	UserID         int64
+	Provider       string
+	BaseURL        string
+	Model          string
+	EmbeddingModel string
+	APIKey         *string
 }

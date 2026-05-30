@@ -36,6 +36,7 @@ type CreateDLQItemParams struct {
 }
 
 type ListDLQItemsParams struct {
+	UserID int64
 	Status string
 	Limit  int
 	Offset int
@@ -44,12 +45,13 @@ type ListDLQItemsParams struct {
 type DLQRepository interface {
 	Create(ctx context.Context, params CreateDLQItemParams) (*DLQItem, error)
 	List(ctx context.Context, params ListDLQItemsParams) ([]DLQItem, int64, error)
-	FindByID(ctx context.Context, id int64) (*DLQItem, error)
+	FindByUserIDAndID(ctx context.Context, userID, id int64) (*DLQItem, error)
 	MarkReplayed(ctx context.Context, id int64, replayedAt time.Time) (*DLQItem, error)
 	MarkHandled(ctx context.Context, id int64, handledAt time.Time) (*DLQItem, error)
 }
 
 type ListDLQItemsRequest struct {
+	UserID int64
 	Status string
 	Limit  int
 	Offset int
@@ -63,7 +65,8 @@ type ListDLQItemsResponse struct {
 }
 
 type ReplayDLQItemRequest struct {
-	ID int64
+	UserID int64
+	ID     int64
 }
 
 type ReplayDLQItemResponse struct {
@@ -71,7 +74,8 @@ type ReplayDLQItemResponse struct {
 }
 
 type MarkDLQHandledRequest struct {
-	ID int64
+	UserID int64
+	ID     int64
 }
 
 type MarkDLQHandledResponse struct {
@@ -125,6 +129,7 @@ func (s *DLQService) List(ctx context.Context, req ListDLQItemsRequest) (*ListDL
 	limit := normalizeLimit(req.Limit)
 	offset := normalizeOffset(req.Offset)
 	items, total, err := s.repo.List(ctx, ListDLQItemsParams{
+		UserID: req.UserID,
 		Status: req.Status,
 		Limit:  limit,
 		Offset: offset,
@@ -141,7 +146,7 @@ func (s *DLQService) List(ctx context.Context, req ListDLQItemsRequest) (*ListDL
 }
 
 func (s *DLQService) Replay(ctx context.Context, req ReplayDLQItemRequest) (*ReplayDLQItemResponse, error) {
-	item, err := s.repo.FindByID(ctx, req.ID)
+	item, err := s.repo.FindByUserIDAndID(ctx, req.UserID, req.ID)
 	if err != nil {
 		return nil, fmt.Errorf("find dlq item: %w", err)
 	}
@@ -169,6 +174,10 @@ func (s *DLQService) Replay(ctx context.Context, req ReplayDLQItemRequest) (*Rep
 }
 
 func (s *DLQService) MarkHandled(ctx context.Context, req MarkDLQHandledRequest) (*MarkDLQHandledResponse, error) {
+	if _, err := s.repo.FindByUserIDAndID(ctx, req.UserID, req.ID); err != nil {
+		return nil, fmt.Errorf("find dlq item: %w", err)
+	}
+
 	updated, err := s.repo.MarkHandled(ctx, req.ID, s.now())
 	if err != nil {
 		return nil, fmt.Errorf("mark dlq handled: %w", err)

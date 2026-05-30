@@ -10,45 +10,50 @@ export function AIPanel() {
   const [digest, setDigest] = useState<DailyDigest | null>(null);
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState<RAGAnswer | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [digestError, setDigestError] = useState("");
+  const [ragError, setRAGError] = useState("");
+  const [digestLoading, setDigestLoading] = useState(false);
+  const [ragLoading, setRAGLoading] = useState(false);
 
   async function generateDigest() {
-    setError("");
-    setLoading(true);
+    setDigestError("");
+    setDigest(null);
+    setDigestLoading(true);
     try {
       const result = await api.generateDigest(date);
       setDigest(result.digest);
     } catch (err: unknown) {
-      setError(humanizeAPIError(err));
+      setDigestError(humanizeAPIError(err));
     } finally {
-      setLoading(false);
+      setDigestLoading(false);
     }
   }
 
   async function loadDigest() {
-    setError("");
-    setLoading(true);
+    setDigestError("");
+    setDigest(null);
+    setDigestLoading(true);
     try {
       const result = await api.getDigest(date);
       setDigest(result.digest);
     } catch (err: unknown) {
-      setError(humanizeAPIError(err));
+      setDigestError(humanizeAPIError(err));
     } finally {
-      setLoading(false);
+      setDigestLoading(false);
     }
   }
 
   async function ask() {
-    setError("");
-    setLoading(true);
+    setRAGError("");
+    setAnswer(null);
+    setRAGLoading(true);
     try {
       const result = await api.ragSearch({ query, limit: 5 });
       setAnswer(result.answer);
     } catch (err: unknown) {
-      setError(humanizeAPIError(err));
+      setRAGError(humanizeAPIError(err));
     } finally {
-      setLoading(false);
+      setRAGLoading(false);
     }
   }
 
@@ -58,17 +63,17 @@ export function AIPanel() {
         title="Daily Digest"
         actions={
           <div className="flex gap-2">
-            <Button type="button" disabled={loading} onClick={loadDigest}>
+            <Button type="button" disabled={digestLoading} onClick={loadDigest}>
               读取
             </Button>
-            <Button type="button" disabled={loading} onClick={generateDigest}>
+            <Button type="button" disabled={digestLoading} onClick={generateDigest}>
               生成
             </Button>
           </div>
         }
       >
         <div className="space-y-3">
-          <ErrorBanner message={error} />
+          <ErrorBanner message={digestError} />
           <TextInput type="date" value={date} onChange={(event) => setDate(event.target.value)} />
           {digest ? (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
@@ -89,12 +94,13 @@ export function AIPanel() {
       <Panel
         title="RAG 搜索"
         actions={
-          <Button type="button" disabled={loading || !query.trim()} onClick={ask}>
+          <Button type="button" disabled={ragLoading || !query.trim()} onClick={ask}>
             提问
           </Button>
         }
       >
         <div className="space-y-3">
+          <ErrorBanner message={ragError} />
           <TextInput placeholder="输入问题，例如：Kafka 重试失败如何处理" value={query} onChange={(event) => setQuery(event.target.value)} />
           {answer ? (
             <div className="space-y-4">
