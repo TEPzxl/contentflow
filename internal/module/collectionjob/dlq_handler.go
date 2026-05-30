@@ -157,18 +157,5 @@ func toDLQItemHTTPRespList(items []DLQItemDTO) []dlqItemHTTPResp {
 }
 
 func toDLQItemHTTPResp(item DLQItemDTO) dlqItemHTTPResp {
-	return dlqItemHTTPResp{
-		ID:             item.ID,
-		TaskID:         item.TaskID,
-		UserID:         item.UserID,
-		SourceID:       item.SourceID,
-		IdempotencyKey: item.IdempotencyKey,
-		Attempt:        item.Attempt,
-		ErrorMessage:   item.ErrorMessage,
-		Status:         item.Status,
-		CreatedAt:      item.CreatedAt,
-		UpdatedAt:      item.UpdatedAt,
-		ReplayedAt:     item.ReplayedAt,
-		HandledAt:      item.HandledAt,
-	}
+	return dlqItemHTTPResp(item)
 }

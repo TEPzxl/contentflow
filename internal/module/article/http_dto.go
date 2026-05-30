@@ -50,23 +50,5 @@ func toArticleHTTPRespList(articles []ArticleDTO) []articleHTTPResp {
 }
 
 func toArticleHTTPResp(article ArticleDTO) articleHTTPResp {
-	return articleHTTPResp{
-		ID:          article.ID,
-		SourceID:    article.SourceID,
-		SourceType:  article.SourceType,
-		ExternalID:  article.ExternalID,
-		Title:       article.Title,
-		URL:         article.URL,
-		OriginalURL: article.OriginalURL,
-		Author:      article.Author,
-		Summary:     article.Summary,
-		Content:     article.Content,
-		PublishedAt: article.PublishedAt,
-		CreatedAt:   article.CreatedAt,
-		UpdatedAt:   article.UpdatedAt,
-		IsRead:      article.IsRead,
-		IsSaved:     article.IsSaved,
-		ReadAt:      article.ReadAt,
-		SavedAt:     article.SavedAt,
-	}
+	return articleHTTPResp(article)
 }

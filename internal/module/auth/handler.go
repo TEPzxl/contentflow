@@ -80,11 +80,7 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.Register(c.Request.Context(), RegisterRequest{
-		Email:       req.Email,
-		Password:    req.Password,
-		DisplayName: req.DisplayName,
-	})
+	result, err := h.service.Register(c.Request.Context(), RegisterRequest(req))
 	if err != nil {
 		h.handleAuthError(c, err)
 		return
@@ -100,10 +96,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.Login(c.Request.Context(), LoginRequest{
-		Email:    req.Email,
-		Password: req.Password,
-	})
+	result, err := h.service.Login(c.Request.Context(), LoginRequest(req))
 	if err != nil {
 		h.handleAuthError(c, err)
 		return
@@ -237,11 +230,7 @@ func requestIsHTTPS(c *gin.Context) bool {
 }
 
 func toAuthUserHTTPResp(u AuthUser) authUserHTTPResp {
-	return authUserHTTPResp{
-		ID:          u.ID,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-	}
+	return authUserHTTPResp(u)
 }
 
 func toRegisterHTTPResp(resp *RegisterResponse) registerHTTPResp {
