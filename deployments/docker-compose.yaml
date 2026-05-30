@@ -5,9 +5,11 @@ services:
       dockerfile: deployments/Dockerfile
       args:
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    container_name: contentflow_backend
+    container_name: contentflow_api
     environment:
       CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
+      CONTENTFLOW_APP_MODE: api
+      CONTENTFLOW_OBSERVABILITY_SERVICE_NAME: contentflow-api
     ports:
       - "8080:8080"
     healthcheck:
@@ -15,6 +17,52 @@ services:
       interval: 10s
       timeout: 3s
       retries: 12
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    container_name: contentflow_scheduler
+    environment:
+      CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
+      CONTENTFLOW_APP_MODE: scheduler
+      CONTENTFLOW_OBSERVABILITY_SERVICE_NAME: contentflow-scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    container_name: contentflow_worker
+    environment:
+      CONTENTFLOW_CONFIG: /app/configs/config.docker.yaml
+      CONTENTFLOW_APP_MODE: worker
+      CONTENTFLOW_OBSERVABILITY_SERVICE_NAME: contentflow-worker
     depends_on:
       postgres:
         condition: service_healthy
