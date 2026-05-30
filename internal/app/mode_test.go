@@ -1,6 +1,50 @@
 package app
 
-import "testing"
+import (
+	"errors"
+	"io"
+	"log/slog"
+	"sync"
+	"testing"
+)
+
+func TestStartBackgroundTaskReportsError(t *testing.T) {
+	var wg sync.WaitGroup
+	errCh := make(chan error, 1)
+	sentinelErr := errors.New("background task failed")
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	startBackgroundTask(&wg, errCh, log, "test task", func() error {
+		return sentinelErr
+	})
+	wg.Wait()
+
+	select {
+	case got := <-errCh:
+		if !errors.Is(got, sentinelErr) {
+			t.Fatalf("reported error = %v, want %v", got, sentinelErr)
+		}
+	default:
+		t.Fatal("expected background task error to be reported")
+	}
+}
+
+func TestStartBackgroundTaskIgnoresNilError(t *testing.T) {
+	var wg sync.WaitGroup
+	errCh := make(chan error, 1)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	startBackgroundTask(&wg, errCh, log, "test task", func() error {
+		return nil
+	})
+	wg.Wait()
+
+	select {
+	case got := <-errCh:
+		t.Fatalf("unexpected reported error: %v", got)
+	default:
+	}
+}
 
 func TestRuntimePlanRunsOutboxDispatcher(t *testing.T) {
 	tests := []struct {
