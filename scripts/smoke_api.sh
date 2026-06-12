@@ -13,6 +13,8 @@ POLL_ATTEMPTS="${POLL_ATTEMPTS:-15}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-1}"
 ACCESS_TOKEN="${ACCESS_TOKEN:-}"
 SOURCE_ID="${SOURCE_ID:-}"
+RUN_ID="${RUN_ID:-}"
+ARTICLE_ID="${ARTICLE_ID:-}"
 
 require_tools() {
   for tool in curl jq; do
@@ -107,6 +109,7 @@ wait_for_collection_run() {
     local response
     response="$(api GET "/api/v1/sources/${SOURCE_ID}/collection-runs?limit=1" "" "${ACCESS_TOKEN}")"
     if jq -e '.data.total > 0' >/dev/null <<<"${response}"; then
+      RUN_ID="$(jq -er '.data.collection_runs[0].run_id' <<<"${response}")"
       jq -r '.data.collection_runs[0] | "run #\(.run_id) status=\(.status) fetched=\(.fetched_count)"' <<<"${response}"
       return 0
     fi
@@ -117,39 +120,104 @@ wait_for_collection_run() {
   return 1
 }
 
+verify_source_paths() {
+  print_step "checking source CRUD paths"
+  api GET "/api/v1/sources/${SOURCE_ID}" "" "${ACCESS_TOKEN}" |
+    jq -e --argjson source_id "${SOURCE_ID}" '.data.source.id == $source_id' >/dev/null
+  api PATCH "/api/v1/sources/${SOURCE_ID}" "$(jq -n --arg name "${SOURCE_NAME} Updated" '{name:$name}')" "${ACCESS_TOKEN}" |
+    jq -e --arg name "${SOURCE_NAME} Updated" '.data.source.name == $name' >/dev/null
+}
+
+verify_collection_run_detail() {
+  if [[ -z "${RUN_ID}" ]]; then
+    print_step "collection run id missing; skipping run detail check"
+    return 0
+  fi
+  print_step "checking collection run detail"
+  api GET "/api/v1/collection-runs/${RUN_ID}" "" "${ACCESS_TOKEN}" |
+    jq -e --argjson run_id "${RUN_ID}" '.data.collection_run.run_id == $run_id' >/dev/null
+}
+
+verify_article_paths() {
+  print_step "checking article read/save paths"
+  if [[ -z "${ARTICLE_ID}" ]]; then
+    ARTICLE_ID="$(api GET "/api/v1/articles?limit=1" "" "${ACCESS_TOKEN}" | jq -r '.data.articles[0].id // empty')"
+  fi
+  if [[ -z "${ARTICLE_ID}" ]]; then
+    print_step "no article available; skipping article state checks"
+    return 0
+  fi
+
+  api GET "/api/v1/articles/${ARTICLE_ID}" "" "${ACCESS_TOKEN}" |
+    jq -e --argjson article_id "${ARTICLE_ID}" '.data.article.id == $article_id' >/dev/null
+  api PATCH "/api/v1/articles/${ARTICLE_ID}/read" '{"is_read":true}' "${ACCESS_TOKEN}" |
+    jq -e '.data.article.is_read == true' >/dev/null
+  api PATCH "/api/v1/articles/${ARTICLE_ID}/save" '{"is_saved":true}' "${ACCESS_TOKEN}" |
+    jq -e '.data.article.is_saved == true' >/dev/null
+}
+
 verify_read_paths() {
-	print_step "checking authenticated read paths"
-	api GET "/api/v1/me" "" "${ACCESS_TOKEN}" | jq -e '.data.user.email | length > 0' >/dev/null
-	api GET "/api/v1/sources?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.sources | length >= 1' >/dev/null
-	api GET "/api/v1/articles?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.articles | type == "array"' >/dev/null
-	api POST "/api/v1/ai/rag-search" '{"query":"smoke","limit":3}' "${ACCESS_TOKEN}" | jq -e '.data.answer.answer | length > 0' >/dev/null
-	verify_dlq_path
+  print_step "checking authenticated read paths"
+  api GET "/api/v1/me" "" "${ACCESS_TOKEN}" | jq -e '.data.user.email | length > 0' >/dev/null
+  api GET "/api/v1/sources?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.sources | length >= 1' >/dev/null
+  api GET "/api/v1/articles?limit=10" "" "${ACCESS_TOKEN}" | jq -e '.data.articles | type == "array"' >/dev/null
+  api POST "/api/v1/ai/rag-search" '{"query":"smoke","limit":3}' "${ACCESS_TOKEN}" | jq -e '.data.answer.answer | length > 0' >/dev/null
+  verify_source_paths
+  verify_collection_run_detail
+  verify_article_paths
+  verify_dlq_path
+}
+
+expect_status() {
+  local method="$1"
+  local path="$2"
+  local want_status="$3"
+  local body="${4:-}"
+  local body_file status
+  body_file="$(mktemp)"
+
+  local args=(-sS -o "${body_file}" -w "%{http_code}" -X "${method}" -H "Accept: application/json")
+  args+=(-H "Authorization: Bearer ${ACCESS_TOKEN}")
+  if [[ -n "${body}" ]]; then
+    args+=(-H "Content-Type: application/json" -d "${body}")
+  fi
+  status="$(curl "${args[@]}" "${BASE_URL}${path}")"
+
+  if [[ "${status}" != "${want_status}" ]]; then
+    cat "${body_file}" >&2
+    echo "unexpected status for ${method} ${path}: got ${status}, want ${want_status}" >&2
+    rm -f "${body_file}"
+    return 1
+  fi
+  rm -f "${body_file}"
 }
 
 verify_dlq_path() {
-	print_step "checking DLQ path"
-	local body_file status
-	body_file="$(mktemp)"
-	status="$(curl -sS -o "${body_file}" -w "%{http_code}" \
-		-H "Accept: application/json" \
-		-H "Authorization: Bearer ${ACCESS_TOKEN}" \
-		"${BASE_URL}/api/v1/collection-dlq?status=pending&limit=10")"
+  print_step "checking DLQ path"
+  local body_file status
+  body_file="$(mktemp)"
+  status="$(curl -sS -o "${body_file}" -w "%{http_code}" \
+    -H "Accept: application/json" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    "${BASE_URL}/api/v1/collection-dlq?status=pending&limit=10")"
 
-	case "${status}" in
-		200)
-			jq -e '.data.items | type == "array"' "${body_file}" >/dev/null
-			;;
-		404)
-			print_step "DLQ route not registered; skipping DLQ check"
-			;;
-		*)
-			cat "${body_file}" >&2
-			echo "unexpected DLQ status ${status}" >&2
-			rm -f "${body_file}"
-			return 1
-			;;
-	esac
-	rm -f "${body_file}"
+  case "${status}" in
+    200)
+      jq -e '.data.items | type == "array"' "${body_file}" >/dev/null
+      expect_status POST "/api/v1/collection-dlq/999999999/replay" 404
+      expect_status POST "/api/v1/collection-dlq/999999999/handled" 404
+      ;;
+    404)
+      print_step "DLQ route not registered; skipping DLQ check"
+      ;;
+    *)
+      cat "${body_file}" >&2
+      echo "unexpected DLQ status ${status}" >&2
+      rm -f "${body_file}"
+      return 1
+      ;;
+  esac
+  rm -f "${body_file}"
 }
 
 cleanup_source() {
