@@ -145,6 +145,10 @@ func parseConfig(src *source.Source) (Config, error) {
 	cfg.Mailbox = strings.TrimSpace(cfg.Mailbox)
 	cfg.Host = strings.TrimSpace(cfg.Host)
 	cfg.Username = strings.TrimSpace(cfg.Username)
+	cfg.Password = strings.TrimSpace(cfg.Password)
+	if cfg.Password != "" {
+		return Config{}, ErrInvalidEmailConfig
+	}
 	cfg.PasswordEnv = strings.TrimSpace(cfg.PasswordEnv)
 	cfg.FromFilter = strings.TrimSpace(cfg.FromFilter)
 	cfg.RecipientAlias = strings.TrimSpace(cfg.RecipientAlias)

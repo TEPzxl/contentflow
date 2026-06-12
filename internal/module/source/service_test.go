@@ -107,19 +107,22 @@ func TestSourceService_CreateSource(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "create email source redacts secret config in response",
+			name: "create email source stores password_env without plaintext password",
 			req: source.CreateSourceRequest{
 				UserID: 100,
 				Name:   "Inbox",
 				Type:   "email",
-				Config: json.RawMessage(`{"provider":"imap","username":"reader","password":"mail-secret","nested":{"api_key":"api-secret"}}`),
+				Config: json.RawMessage(`{"provider":"imap","username":"reader","password_env":"CONTENTFLOW_TEST_MAIL_PASSWORD","nested":{"api_key":"api-secret"}}`),
 			},
 			mock: func(t *testing.T, ctx context.Context, repo *sourcemocks.MockRepository) {
 				repo.EXPECT().
 					Create(ctx, gomock.AssignableToTypeOf(&source.Source{})).
 					DoAndReturn(func(_ context.Context, s *source.Source) error {
-						if !bytes.Contains(s.ConfigJSON, []byte("mail-secret")) {
-							t.Fatalf("stored ConfigJSON = %s, want raw secret preserved for collector", string(s.ConfigJSON))
+						if bytes.Contains(s.ConfigJSON, []byte("mail-secret")) {
+							t.Fatalf("stored ConfigJSON leaks plaintext secret: %s", string(s.ConfigJSON))
+						}
+						if !bytes.Contains(s.ConfigJSON, []byte("CONTENTFLOW_TEST_MAIL_PASSWORD")) {
+							t.Fatalf("stored ConfigJSON = %s, want password_env", string(s.ConfigJSON))
 						}
 						s.ID = 3
 						return nil
@@ -130,6 +133,18 @@ func TestSourceService_CreateSource(t *testing.T) {
 				assertRedactedConfig(t, resp.Source.Config)
 			},
 			wantErr: nil,
+		},
+		{
+			name: "create email source rejects plaintext password",
+			req: source.CreateSourceRequest{
+				UserID: 100,
+				Name:   "Inbox",
+				Type:   "email",
+				Config: json.RawMessage(`{"provider":"imap","username":"reader","password":"mail-secret"}`),
+			},
+			mock: func(t *testing.T, ctx context.Context, repo *sourcemocks.MockRepository) {
+			},
+			wantErr: source.ErrInvalidSourceConfig,
 		},
 		{
 			name: "empty name",
@@ -606,6 +621,31 @@ func TestSourceService_GetSource(t *testing.T) {
 				t.Fatal("GetSource() response is nil")
 			}
 		})
+	}
+}
+
+func TestSourceService_UpdateSourceRejectsEmailPlaintextPassword(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	repo := sourcemocks.NewMockRepository(ctrl)
+	existing := sampleSourceModel()
+	existing.Type = source.TypeEmail
+	existing.URL = nil
+	existing.ConfigJSON = datatypes.JSON([]byte(`{"provider":"imap","password_env":"OLD_MAIL_PASSWORD"}`))
+	repo.EXPECT().
+		FindByUserIDAndID(ctx, int64(100), int64(1)).
+		Return(existing, nil)
+
+	svc := source.NewService(repo)
+	_, err := svc.UpdateSource(ctx, source.UpdateSourceRequest{
+		UserID:   100,
+		SourceID: 1,
+		Config:   json.RawMessage(`{"provider":"imap","password":"new-secret"}`),
+	})
+	if !errors.Is(err, source.ErrInvalidSourceConfig) {
+		t.Fatalf("UpdateSource() error = %v, want %v", err, source.ErrInvalidSourceConfig)
 	}
 }
 

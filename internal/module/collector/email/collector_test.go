@@ -40,6 +40,12 @@ func TestCollector_Collect(t *testing.T) {
 			wantErr: ErrInvalidEmailConfig,
 		},
 		{
+			name:    "plaintext password is rejected",
+			src:     sampleEmailSource(`{"provider":"imap","username":"reader","password":"mail-secret"}`),
+			reader:  &fakeMailboxReader{},
+			wantErr: ErrInvalidEmailConfig,
+		},
+		{
 			name: "mailbox reader failure is wrapped",
 			src:  sampleEmailSource(`{"mailbox":"INBOX"}`),
 			reader: &fakeMailboxReader{

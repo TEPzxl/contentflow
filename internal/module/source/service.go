@@ -93,7 +93,7 @@ func (s *SourceService) CreateSource(ctx context.Context, req CreateSourceReques
 		return nil, ErrInvalidSourceURL
 	}
 
-	configJSON, err := normalizeConfig(req.Config)
+	configJSON, err := normalizeSourceConfig(sourceType, req.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (s *SourceService) UpdateSource(ctx context.Context, req UpdateSourceReques
 	}
 
 	if req.Config != nil {
-		configJSON, err := normalizeConfig(req.Config)
+		configJSON, err := normalizeSourceConfig(src.Type, req.Config)
 		if err != nil {
 			return nil, err
 		}
@@ -314,6 +314,17 @@ func normalizeURL(raw *string) (*string, error) {
 	return &value, nil
 }
 
+func normalizeSourceConfig(sourceType string, config json.RawMessage) ([]byte, error) {
+	configJSON, err := normalizeConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	if sourceType == TypeEmail && emailConfigHasPlaintextPassword(configJSON) {
+		return nil, ErrInvalidSourceConfig
+	}
+	return configJSON, nil
+}
+
 func normalizeConfig(config json.RawMessage) ([]byte, error) {
 	if len(config) == 0 {
 		return []byte(`{}`), nil
@@ -324,6 +335,26 @@ func normalizeConfig(config json.RawMessage) ([]byte, error) {
 	}
 
 	return config, nil
+}
+
+func emailConfigHasPlaintextPassword(config json.RawMessage) bool {
+	if len(config) == 0 {
+		return false
+	}
+
+	var value map[string]any
+	if err := json.Unmarshal(config, &value); err != nil {
+		return false
+	}
+	password, ok := value["password"]
+	if !ok || password == nil {
+		return false
+	}
+	passwordText, ok := password.(string)
+	if ok {
+		return strings.TrimSpace(passwordText) != ""
+	}
+	return true
 }
 
 func normalizeLimit(limit int) int {

@@ -860,8 +860,9 @@ components:
         config:
           type: object
           description: |
-            Source-specific configuration. For email sources, the first supported real reader is
-            the directory provider: {"provider":"directory","mailbox":"/path/to/eml-dir"}.
+            Source-specific configuration. For email sources, supported real readers are
+            the directory provider ({"provider":"directory","mailbox":"/path/to/eml-dir"})
+            and IMAP. IMAP credentials must use password_env; plaintext password is rejected.
           additionalProperties: true
           properties:
             provider:
@@ -880,12 +881,9 @@ components:
             username:
               type: string
               description: IMAP username when provider is imap.
-            password:
-              type: string
-              description: IMAP password when provider is imap. Prefer secret-backed config in production.
             password_env:
               type: string
-              description: Environment variable name that contains the IMAP password. Prefer this over password.
+              description: Required environment variable name that contains the IMAP password when provider is imap. Plaintext password fields are rejected.
             use_tls:
               type: boolean
               description: Whether to use TLS for IMAP. Defaults to true.
@@ -915,7 +913,7 @@ components:
           type: boolean
         config:
           type: object
-          description: Source-specific configuration. Email sources support provider, mailbox, IMAP connection fields, from_filter, recipient_alias, and collector-maintained cursors.
+          description: Source-specific configuration. Email sources support provider, mailbox, IMAP connection fields, password_env, from_filter, recipient_alias, and collector-maintained cursors. Plaintext password fields are rejected.
           additionalProperties: true
     Source:
       type: object
