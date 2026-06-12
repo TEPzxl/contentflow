@@ -46,7 +46,7 @@ case "${cmd}" in
     scripts/validate_k8s.sh
     ;;
   web-audit)
-    npm --prefix web audit --audit-level=moderate
+    npm --prefix web audit --audit-level=moderate --registry="${NPM_AUDIT_REGISTRY:-https://registry.npmjs.org}"
     ;;
   web-typecheck)
     npm --prefix web run typecheck
