@@ -50,7 +50,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   if (response.status === 401 && options.auth !== false && options.retryOnUnauthorized !== false) {
-    const refreshed = await refreshSession();
+    const refreshed = await refreshStoredSession();
     if (refreshed) {
       return request<T>(path, { ...options, retryOnUnauthorized: false });
     }
@@ -68,24 +68,23 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload.data as T;
 }
 
-async function refreshSession() {
-  const session = readSession();
-  if (!session?.accessToken) {
-    return false;
-  }
-
+async function refreshStoredSession() {
   try {
-    const data = await request<AuthTokens>("/auth/refresh", {
-      method: "POST",
-      auth: false,
-      retryOnUnauthorized: false
-    });
+    const data = await refreshSessionFromCookie();
     saveSession(data);
     return true;
   } catch {
     clearSession();
     return false;
   }
+}
+
+function refreshSessionFromCookie() {
+  return request<AuthTokens>("/auth/refresh", {
+    method: "POST",
+    auth: false,
+    retryOnUnauthorized: false
+  });
 }
 
 function withQuery(path: string, params: Record<string, string | number | boolean | undefined>) {
@@ -115,6 +114,9 @@ export const api = {
       method: "POST",
       auth: false
     });
+  },
+  refreshSession() {
+    return refreshSessionFromCookie();
   },
   me() {
     return request<{ user: AuthTokens["user"] }>("/me");

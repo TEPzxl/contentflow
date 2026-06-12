@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, humanizeAPIError } from "@/lib/api/client";
-import { clearSession, readSession } from "@/lib/auth/session";
+import { clearSession, readSession, saveSession } from "@/lib/auth/session";
 import type { SessionSnapshot } from "@/lib/auth/session";
 import type { Article, CollectionRun, Source } from "@/lib/api/types";
 import { AuthPanel } from "@/features/auth/auth-panel";
@@ -19,6 +19,7 @@ type AuthMode = "login" | "register";
 
 export function Workbench({ initialAuthMode = "login" }: { initialAuthMode?: AuthMode }) {
   const [session, setSession] = useState<SessionSnapshot | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [view, setView] = useState<View>("articles");
   const [sources, setSources] = useState<Source[]>([]);
   const [selectedSourceID, setSelectedSourceID] = useState<number | null>(null);
@@ -45,7 +46,37 @@ export function Workbench({ initialAuthMode = "login" }: { initialAuthMode?: Aut
   );
 
   useEffect(() => {
-    setSession(readSession());
+    let cancelled = false;
+
+    async function restoreSession() {
+      const existingSession = readSession();
+      if (existingSession) {
+        if (!cancelled) {
+          setSession(existingSession);
+          setSessionReady(true);
+        }
+        return;
+      }
+
+      try {
+        const tokens = await api.refreshSession();
+        if (!cancelled) {
+          setSession(saveSession(tokens));
+        }
+      } catch {
+        clearSession();
+      } finally {
+        if (!cancelled) {
+          setSessionReady(true);
+        }
+      }
+    }
+
+    void restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function logout() {
@@ -55,6 +86,14 @@ export function Workbench({ initialAuthMode = "login" }: { initialAuthMode?: Aut
     setSources([]);
     setSelectedArticle(null);
     setLatestRun(null);
+  }
+
+  if (!sessionReady) {
+    return (
+      <main className="grid min-h-screen place-items-center px-4 py-8 text-sm text-slate-600">
+        正在恢复登录状态…
+      </main>
+    );
   }
 
   if (!session) {
