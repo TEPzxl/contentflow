@@ -1,5 +1,6 @@
 APP_NAME := contentflow
 DATABASE_URL ?= postgres://contentflow:contentflow@localhost:5432/contentflow?sslmode=disable
+CONTENTFLOW_APP_MODE ?= api
 
 .PHONY: run dev tidy fmt test build compose-up compose-build compose-down compose-logs compose-ps logs dev-stack migrate-up migrate-down migrate-version migrate-force \
 	mock test-integration web-dev web-build web-lint web-typecheck
@@ -50,10 +51,10 @@ mock:
 
 
 run:
-	@go run ./cmd/server
+	@CONTENTFLOW_APP_MODE=$(CONTENTFLOW_APP_MODE) go run ./cmd/server
 
 dev:
-	@go run ./cmd/server
+	@CONTENTFLOW_APP_MODE=$(CONTENTFLOW_APP_MODE) go run ./cmd/server
 
 tidy:
 	@go mod tidy

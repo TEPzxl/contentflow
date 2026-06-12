@@ -98,9 +98,10 @@ type DLQItemDTO struct {
 }
 
 type DLQService struct {
-	repo   DLQRepository
-	writer EventWriter
-	now    func() time.Time
+	repo        DLQRepository
+	writer      EventWriter
+	now         func() time.Time
+	idGenerator func() string
 }
 
 type DLQOption func(*DLQService)
@@ -113,11 +114,20 @@ func WithDLQNow(now func() time.Time) DLQOption {
 	}
 }
 
+func WithDLQTaskIDGenerator(idGenerator func() string) DLQOption {
+	return func(s *DLQService) {
+		if idGenerator != nil {
+			s.idGenerator = idGenerator
+		}
+	}
+}
+
 func NewDLQService(repo DLQRepository, writer EventWriter, opts ...DLQOption) *DLQService {
 	s := &DLQService{
-		repo:   repo,
-		writer: writer,
-		now:    func() time.Time { return time.Now().UTC() },
+		repo:        repo,
+		writer:      writer,
+		now:         func() time.Time { return time.Now().UTC() },
+		idGenerator: randomTaskID,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -152,6 +162,7 @@ func (s *DLQService) Replay(ctx context.Context, req ReplayDLQItemRequest) (*Rep
 	}
 
 	event := item.Payload
+	event.TaskID = s.idGenerator()
 	event.Attempt = 0
 	event.NextAttemptAt = time.Time{}
 	data, err := json.Marshal(event)

@@ -11,7 +11,12 @@ func TestDLQService_ListReplayAndMarkHandled(t *testing.T) {
 	now := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
 	repo := newMemoryDLQRepository()
 	writer := &fakeEventWriter{}
-	service := NewDLQService(repo, writer, WithDLQNow(func() time.Time { return now }))
+	service := NewDLQService(
+		repo,
+		writer,
+		WithDLQNow(func() time.Time { return now }),
+		WithDLQTaskIDGenerator(func() string { return "task-replay-1" }),
+	)
 	ctx := context.Background()
 
 	event := CollectionRequested{
@@ -57,6 +62,12 @@ func TestDLQService_ListReplayAndMarkHandled(t *testing.T) {
 	}
 	var replayEvent CollectionRequested
 	unmarshalEvent(t, writer.events[0], &replayEvent)
+	if replayEvent.TaskID != "task-replay-1" {
+		t.Fatalf("replay task id = %q, want new replay task id", replayEvent.TaskID)
+	}
+	if replayEvent.TaskID == event.TaskID {
+		t.Fatalf("replay task id reused original task id %q", event.TaskID)
+	}
 	if replayEvent.Attempt != 0 || !replayEvent.NextAttemptAt.IsZero() {
 		t.Fatalf("replay event = %#v, want reset attempt", replayEvent)
 	}
