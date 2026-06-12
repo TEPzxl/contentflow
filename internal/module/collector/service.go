@@ -15,6 +15,7 @@ var (
 	ErrCollectionFailed      = errors.New("collection failed")
 	ErrCollectionInProgress  = errors.New("collection in progress")
 	defaultCollectionLockTTL = 10 * time.Minute
+	defaultStaleRunTimeout   = 30 * time.Minute
 )
 
 type ArticleWriter interface {
@@ -63,6 +64,7 @@ type CollectionService struct {
 	sourceListCacheInvalidator SourceListCacheInvalidator
 	transactionRunner          TransactionRunner
 	lockTTL                    time.Duration
+	staleRunTimeout            time.Duration
 	logger                     *slog.Logger
 	now                        func() time.Time
 }
@@ -103,6 +105,14 @@ func WithCollectionLockTTL(ttl time.Duration) Option {
 	}
 }
 
+func WithStaleRunTimeout(timeout time.Duration) Option {
+	return func(cs *CollectionService) {
+		if timeout >= 0 {
+			cs.staleRunTimeout = timeout
+		}
+	}
+}
+
 func WithSourceListCacheInvalidator(invalidator SourceListCacheInvalidator) Option {
 	return func(cs *CollectionService) {
 		cs.sourceListCacheInvalidator = invalidator
@@ -117,13 +127,14 @@ func WithTransactionRunner(runner TransactionRunner) Option {
 
 func NewService(sourceRepo source.Repository, runRepo RunRepository, registry *Registry, articleWriter ArticleWriter, opts ...Option) Service {
 	s := &CollectionService{
-		sourceRepo:    sourceRepo,
-		runRepo:       runRepo,
-		registry:      registry,
-		articleWriter: articleWriter,
-		logger:        slog.Default(),
-		lockTTL:       defaultCollectionLockTTL,
-		now:           func() time.Time { return time.Now().UTC() },
+		sourceRepo:      sourceRepo,
+		runRepo:         runRepo,
+		registry:        registry,
+		articleWriter:   articleWriter,
+		logger:          slog.Default(),
+		lockTTL:         defaultCollectionLockTTL,
+		staleRunTimeout: defaultStaleRunTimeout,
+		now:             func() time.Time { return time.Now().UTC() },
 	}
 
 	for _, opt := range opts {
@@ -140,6 +151,10 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 
 	if err != nil {
 		return nil, fmt.Errorf("find source: %w", err)
+	}
+
+	if err := s.markStaleRunningRunsFailed(ctx, src); err != nil {
+		return nil, err
 	}
 
 	c, ok := s.registry.Get(src.Type)
@@ -215,6 +230,57 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 		DuplicatedCount: writeResult.DuplicatedCount,
 		ErrorMessage:    "",
 	}, nil
+}
+
+func (s *CollectionService) markStaleRunningRunsFailed(ctx context.Context, src *source.Source) error {
+	if s.staleRunTimeout <= 0 {
+		return nil
+	}
+
+	staleRepo, ok := s.runRepo.(StaleRunRepository)
+	if !ok {
+		return nil
+	}
+
+	now := s.now()
+	errorMessage := fmt.Sprintf("collection run timed out after %s", s.staleRunTimeout)
+	var marked int64
+	if err := s.runInFinalizationTransaction(ctx, func(txCtx context.Context) error {
+		count, err := staleRepo.MarkStaleRunningFailed(txCtx, MarkStaleRunningRunsParams{
+			SourceID:      src.ID,
+			StartedBefore: now.Add(-s.staleRunTimeout),
+			FinishedAt:    now,
+			ErrorMessage:  errorMessage,
+		})
+		if err != nil {
+			return err
+		}
+		marked = count
+		if marked == 0 {
+			return nil
+		}
+
+		src.LastFetchedAt = &now
+		src.LastFetchStatus = RunStatusFailed
+		src.LastFetchMessage = errorMessage
+		src.UpdatedAt = now
+		if err := s.sourceRepo.Update(txCtx, src); err != nil {
+			return fmt.Errorf("update source stale run status: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("mark stale collection runs failed: %w", err)
+	}
+
+	if marked > 0 {
+		s.invalidateSourceListCache(ctx, src.UserID)
+		s.logger.Warn("marked stale collection runs failed",
+			slog.Int64("source_id", src.ID),
+			slog.Int64("stale_runs", marked),
+			slog.Duration("timeout", s.staleRunTimeout),
+		)
+	}
+	return nil
 }
 
 func (s *CollectionService) acquireLock(ctx context.Context, sourceID int64) (CollectionLockReleaseFunc, bool, error) {

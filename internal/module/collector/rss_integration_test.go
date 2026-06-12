@@ -129,6 +129,80 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 	}
 }
 
+func TestCollectionServiceMarksStaleRunningRunsFailedBeforeStartingNewRun(t *testing.T) {
+	db, cleanup := setupCollectorIntegrationDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 12, 0, 0, 0, time.UTC)
+	feedURL := "https://example.com/stale-feed.xml"
+	userID := createCollectorIntegrationUser(t, db, "collector-stale@example.com")
+	sourceRepo := source.NewRepository(db)
+	src := &source.Source{
+		UserID:           userID,
+		Name:             "Stale Feed",
+		Type:             source.TypeRSS,
+		URL:              &feedURL,
+		ConfigJSON:       datatypes.JSON([]byte(`{}`)),
+		IsActive:         true,
+		LastFetchStatus:  "",
+		LastFetchMessage: "",
+		CreatedAt:        now.Add(-2 * time.Hour),
+		UpdatedAt:        now.Add(-2 * time.Hour),
+	}
+	if err := sourceRepo.Create(ctx, src); err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	staleRun := collector.CollectionRun{
+		SourceID:  src.ID,
+		Status:    collector.RunStatusRunning,
+		StartedAt: now.Add(-time.Hour),
+		CreatedAt: now.Add(-time.Hour),
+	}
+	if err := db.Create(&staleRun).Error; err != nil {
+		t.Fatalf("create stale collection run: %v", err)
+	}
+
+	registry, err := collector.NewRegistry(fakeCollector{
+		sourceType: source.TypeRSS,
+		items:      []collector.CollectedItem{},
+	})
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	service := collector.NewService(
+		sourceRepo,
+		collector.NewRunRepository(db),
+		registry,
+		article.NewService(article.NewRepository(db), article.WithNow(func() time.Time { return now })),
+		collector.WithNow(func() time.Time { return now }),
+		collector.WithTransactionRunner(collector.NewGormTransactionRunner(db)),
+	)
+
+	resp, err := service.CollectSource(ctx, collector.CollectSourceRequest{UserID: userID, SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("CollectSource() error = %v", err)
+	}
+	if resp.Status != collector.RunStatusSuccess {
+		t.Fatalf("new run status = %q, want %q", resp.Status, collector.RunStatusSuccess)
+	}
+
+	var oldRun collector.CollectionRun
+	if err := db.Where("id = ?", staleRun.ID).First(&oldRun).Error; err != nil {
+		t.Fatalf("find stale run: %v", err)
+	}
+	if oldRun.Status != collector.RunStatusFailed {
+		t.Fatalf("stale run status = %q, want %q", oldRun.Status, collector.RunStatusFailed)
+	}
+	if oldRun.FinishedAt == nil || !oldRun.FinishedAt.Equal(now) {
+		t.Fatalf("stale run finished_at = %v, want %v", oldRun.FinishedAt, now)
+	}
+	if !strings.Contains(oldRun.ErrorMessage, "timed out") {
+		t.Fatalf("stale run error_message = %q, want timeout message", oldRun.ErrorMessage)
+	}
+}
+
 func TestCollectionFinalizationRollsBackArticleWritesWhenSourceStatusUpdateFails(t *testing.T) {
 	db, cleanup := setupCollectorIntegrationDB(t)
 	defer cleanup()

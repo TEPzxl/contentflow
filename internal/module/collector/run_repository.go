@@ -26,6 +26,17 @@ type ListRunsParams struct {
 	Offset   int
 }
 
+type MarkStaleRunningRunsParams struct {
+	SourceID      int64
+	StartedBefore time.Time
+	FinishedAt    time.Time
+	ErrorMessage  string
+}
+
+type StaleRunRepository interface {
+	MarkStaleRunningFailed(ctx context.Context, params MarkStaleRunningRunsParams) (int64, error)
+}
+
 type FinishRunParams struct {
 	RunID           int64
 	Status          string
@@ -71,6 +82,24 @@ func (r *GormRunRepository) Finish(ctx context.Context, params FinishRunParams) 
 		return ErrCollectionRunNotFound
 	}
 	return nil
+}
+
+func (r *GormRunRepository) MarkStaleRunningFailed(ctx context.Context, params MarkStaleRunningRunsParams) (int64, error) {
+	result := dbtx.FromContext(ctx, r.db).WithContext(ctx).
+		Model(&CollectionRun{}).
+		Where("source_id = ?", params.SourceID).
+		Where("status = ?", RunStatusRunning).
+		Where("started_at < ?", params.StartedBefore).
+		Select("status", "finished_at", "error_message").
+		Updates(CollectionRun{
+			Status:       RunStatusFailed,
+			FinishedAt:   &params.FinishedAt,
+			ErrorMessage: params.ErrorMessage,
+		})
+	if result.Error != nil {
+		return 0, fmt.Errorf("mark stale running collection runs failed: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 func (r *GormRunRepository) ListBySourceID(ctx context.Context, params ListRunsParams) ([]CollectionRun, int64, error) {
