@@ -104,6 +104,41 @@ func TestOutboxProducer_RequestCollectionWritesOutbox(t *testing.T) {
 	}
 }
 
+func TestOutboxProducer_RequestCollectionReusesActiveOutboxEvent(t *testing.T) {
+	now := time.Date(2026, 5, 14, 11, 0, 0, 0, time.UTC)
+	repo := newMemoryOutboxRepository()
+	ids := []string{"task-1", "task-2"}
+	producer := NewOutboxProducer(
+		repo,
+		WithOutboxProducerNow(func() time.Time { return now }),
+		WithOutboxProducerIDGenerator(func() string {
+			id := ids[0]
+			ids = ids[1:]
+			return id
+		}),
+	)
+
+	first, err := producer.RequestCollection(context.Background(), collector.CollectSourceRequest{UserID: 100, SourceID: 42})
+	if err != nil {
+		t.Fatalf("RequestCollection(first) error = %v", err)
+	}
+	second, err := producer.RequestCollection(context.Background(), collector.CollectSourceRequest{UserID: 100, SourceID: 42})
+	if err != nil {
+		t.Fatalf("RequestCollection(second) error = %v", err)
+	}
+	if second.TaskID != first.TaskID {
+		t.Fatalf("second task id = %q, want existing task id %q", second.TaskID, first.TaskID)
+	}
+
+	events, total, err := repo.ListReady(context.Background(), now, 10)
+	if err != nil {
+		t.Fatalf("ListReady() error = %v", err)
+	}
+	if total != 1 || len(events) != 1 {
+		t.Fatalf("outbox total/events = %d/%d, want one active event", total, len(events))
+	}
+}
+
 type memoryOutboxRepository struct {
 	nextID int64
 	events map[int64]OutboxEvent
@@ -117,6 +152,12 @@ func newMemoryOutboxRepository() *memoryOutboxRepository {
 }
 
 func (r *memoryOutboxRepository) Create(_ context.Context, params CreateOutboxEventParams) (*OutboxEvent, error) {
+	for _, event := range r.events {
+		if event.Topic == params.Topic && event.Key == params.Key && isActiveOutboxStatus(event.Status) {
+			return &event, nil
+		}
+	}
+
 	value, err := marshalOutboxPayload(params.Payload)
 	if err != nil {
 		return nil, err

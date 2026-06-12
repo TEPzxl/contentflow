@@ -45,6 +45,12 @@ func NewGormOutboxRepository(db *gorm.DB) OutboxRepository {
 }
 
 func (r *GormOutboxRepository) Create(ctx context.Context, params CreateOutboxEventParams) (*OutboxEvent, error) {
+	if existing, ok, err := r.findActiveByTopicKey(ctx, params.Topic, params.Key); err != nil {
+		return nil, err
+	} else if ok {
+		return existing, nil
+	}
+
 	payload, err := marshalOutboxPayload(params.Payload)
 	if err != nil {
 		return nil, err
@@ -65,10 +71,33 @@ func (r *GormOutboxRepository) Create(ctx context.Context, params CreateOutboxEv
 		UpdatedAt:     now,
 	}
 	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			if existing, ok, findErr := r.findActiveByTopicKey(ctx, params.Topic, params.Key); findErr != nil {
+				return nil, findErr
+			} else if ok {
+				return existing, nil
+			}
+		}
 		return nil, fmt.Errorf("create outbox event: %w", err)
 	}
 	event := outboxModelToEvent(model)
 	return &event, nil
+}
+
+func (r *GormOutboxRepository) findActiveByTopicKey(ctx context.Context, topic string, key string) (*OutboxEvent, bool, error) {
+	var model OutboxEventModel
+	err := r.db.WithContext(ctx).
+		Where("topic = ? AND event_key = ? AND status IN ?", topic, key, activeOutboxStatuses()).
+		Order("id ASC").
+		First(&model).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("find active outbox event: %w", err)
+	}
+	event := outboxModelToEvent(model)
+	return &event, true, nil
 }
 
 func (r *GormOutboxRepository) ListReady(ctx context.Context, now time.Time, limit int) ([]OutboxEvent, int64, error) {
@@ -170,6 +199,19 @@ func outboxReadyForClaimFilter(now time.Time) (string, []any) {
 		OutboxStatusProcessing,
 		now,
 	}
+}
+
+func activeOutboxStatuses() []string {
+	return []string{OutboxStatusPending, OutboxStatusFailed, OutboxStatusProcessing}
+}
+
+func isActiveOutboxStatus(status string) bool {
+	for _, activeStatus := range activeOutboxStatuses() {
+		if status == activeStatus {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *GormOutboxRepository) FindByID(ctx context.Context, id int64) (*OutboxEvent, error) {

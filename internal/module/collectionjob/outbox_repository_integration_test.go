@@ -104,6 +104,47 @@ func TestGormOutboxRepository_ClaimReadyReclaimsExpiredProcessingEvents(t *testi
 	}
 }
 
+func TestGormOutboxRepository_EnforcesOneActiveEventPerTopicKey(t *testing.T) {
+	db, cleanup := setupOutboxRepositoryTestDB(t)
+	defer cleanup()
+
+	now := time.Date(2026, 5, 29, 10, 0, 0, 0, time.UTC)
+	first := OutboxEventModel{
+		Topic:         TopicCollectionRequested,
+		EventKey:      "collection:source:42",
+		PayloadJSON:   []byte(`{"task_id":"task-1","user_id":100,"source_id":42,"idempotency_key":"collection:source:42","requested_at":"2026-05-29T10:00:00Z"}`),
+		Status:        OutboxStatusPending,
+		Attempts:      0,
+		NextAttemptAt: now,
+		LastError:     "",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := db.Create(&first).Error; err != nil {
+		t.Fatalf("Create(first) error = %v", err)
+	}
+
+	duplicate := first
+	duplicate.ID = 0
+	duplicate.PayloadJSON = []byte(`{"task_id":"task-2","user_id":100,"source_id":42,"idempotency_key":"collection:source:42","requested_at":"2026-05-29T10:00:00Z"}`)
+	if err := db.Create(&duplicate).Error; err == nil {
+		t.Fatal("Create(duplicate active) error is nil, want unique constraint violation")
+	}
+
+	if err := db.Model(&OutboxEventModel{}).Where("id = ?", first.ID).Updates(map[string]any{
+		"status":     OutboxStatusSent,
+		"sent_at":    now,
+		"updated_at": now,
+	}).Error; err != nil {
+		t.Fatalf("mark first sent: %v", err)
+	}
+	duplicate.ID = 0
+	duplicate.Status = OutboxStatusPending
+	if err := db.Create(&duplicate).Error; err != nil {
+		t.Fatalf("Create(after sent) error = %v", err)
+	}
+}
+
 func TestGormOutboxRepository_MarkSentRequiresMatchingClaim(t *testing.T) {
 	db, cleanup := setupOutboxRepositoryTestDB(t)
 	defer cleanup()

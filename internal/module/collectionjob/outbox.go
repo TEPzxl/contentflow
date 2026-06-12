@@ -252,13 +252,23 @@ func (p *OutboxProducer) RequestCollection(ctx context.Context, req collector.Co
 		Attempt:        0,
 		RequestedAt:    p.now(),
 	}
-	if _, err := p.repo.Create(ctx, CreateOutboxEventParams{
+	outboxEvent, err := p.repo.Create(ctx, CreateOutboxEventParams{
 		Topic:     TopicCollectionRequested,
 		Key:       key,
 		Payload:   payload,
 		CreatedAt: p.now(),
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, fmt.Errorf("create collection requested outbox event: %w", err)
+	}
+	if outboxEvent != nil {
+		var queued CollectionRequested
+		if err := json.Unmarshal(outboxEvent.Value, &queued); err != nil {
+			return nil, fmt.Errorf("decode collection requested outbox event: %w", err)
+		}
+		if queued.TaskID != "" {
+			taskID = queued.TaskID
+		}
 	}
 
 	return &collector.RequestCollectionResponse{
