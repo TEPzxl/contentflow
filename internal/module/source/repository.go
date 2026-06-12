@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tepzxl/contentflow/internal/storage/dbtx"
 	"gorm.io/gorm"
 )
 
@@ -48,7 +49,7 @@ func NewRepository(db *gorm.DB) Repository {
 }
 
 func (r *GormRepository) Create(ctx context.Context, s *Source) error {
-	if err := gorm.G[Source](r.db).Create(ctx, s); err != nil {
+	if err := gorm.G[Source](dbtx.FromContext(ctx, r.db)).Create(ctx, s); err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return ErrSourceURLDuplicated
 		}
@@ -58,7 +59,7 @@ func (r *GormRepository) Create(ctx context.Context, s *Source) error {
 }
 
 func (r *GormRepository) FindByUserIDAndID(ctx context.Context, userID, id int64) (*Source, error) {
-	s, err := gorm.G[Source](r.db).
+	s, err := gorm.G[Source](dbtx.FromContext(ctx, r.db)).
 		Where("user_id = ?", userID).
 		Where("id = ?", id).
 		Where("deleted_at IS NULL").
@@ -76,7 +77,7 @@ func (r *GormRepository) FindByUserIDAndID(ctx context.Context, userID, id int64
 }
 
 func (r *GormRepository) ListByUserID(ctx context.Context, params ListParams) ([]Source, int64, error) {
-	query := r.db.
+	query := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Model(&Source{}).
 		Where("user_id = ?", params.UserID).
 		Where("deleted_at IS NULL")
@@ -123,7 +124,7 @@ func (r *GormRepository) ListActiveForCollection(ctx context.Context, limit int)
 	}
 
 	var sources []ActiveSourceForCollection
-	if err := r.db.WithContext(ctx).
+	if err := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Model(&Source{}).
 		Select("id", "user_id", "type", "last_fetched_at").
 		Where("is_active = ?", true).
@@ -151,7 +152,7 @@ func (r *GormRepository) Update(ctx context.Context, s *Source) error {
 		"updated_at":         s.UpdatedAt,
 	}
 
-	result := r.db.WithContext(ctx).
+	result := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Model(&Source{}).
 		Where("user_id = ?", s.UserID).
 		Where("id = ?", s.ID).
@@ -173,7 +174,7 @@ func (r *GormRepository) Update(ctx context.Context, s *Source) error {
 }
 
 func (r *GormRepository) SoftDelete(ctx context.Context, userID, id int64, deletedAt time.Time) error {
-	result := r.db.WithContext(ctx).
+	result := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Model(&Source{}).
 		Where("user_id = ?", userID).
 		Where("id = ?", id).

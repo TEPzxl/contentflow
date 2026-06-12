@@ -229,6 +229,7 @@ func Run() error {
 	collectionOptions = append(collectionOptions, collector.WithLogger(log))
 	collectionOptions = append(collectionOptions, collector.WithSourceListCacheInvalidator(sourceListCache))
 	collectionOptions = append(collectionOptions, collector.WithCollectionLock(collector.NewRedisCollectionLock(redisClient)))
+	collectionOptions = append(collectionOptions, collector.WithTransactionRunner(collector.NewGormTransactionRunner(db)))
 	collectionService := collector.NewService(sourceRepo, runRepo, collectorRegistry, articleService, collectionOptions...)
 	collectionHandler := collector.NewHandler(collectionService)
 

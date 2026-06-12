@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tepzxl/contentflow/internal/storage/dbtx"
 	"gorm.io/gorm"
 )
 
@@ -44,14 +45,14 @@ func NewRunRepository(db *gorm.DB) RunRepository {
 }
 
 func (r *GormRunRepository) Create(ctx context.Context, run *CollectionRun) error {
-	if err := gorm.G[CollectionRun](r.db).Create(ctx, run); err != nil {
+	if err := gorm.G[CollectionRun](dbtx.FromContext(ctx, r.db)).Create(ctx, run); err != nil {
 		return fmt.Errorf("create collection run: %w", err)
 	}
 	return nil
 }
 
 func (r *GormRunRepository) Finish(ctx context.Context, params FinishRunParams) error {
-	rowAffected, err := gorm.G[CollectionRun](r.db).
+	rowAffected, err := gorm.G[CollectionRun](dbtx.FromContext(ctx, r.db)).
 		Where("id = ?", params.RunID).
 		Select("status", "finished_at", "fetched_count", "inserted_count", "duplicated_count", "error_message").
 		Updates(ctx, CollectionRun{
@@ -85,7 +86,7 @@ func (r *GormRunRepository) ListBySourceID(ctx context.Context, params ListRunsP
 		offset = 0
 	}
 
-	query := r.db.WithContext(ctx).
+	query := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Model(&CollectionRun{}).
 		Where("source_id = ?", params.SourceID)
 	if params.Status != "" {
@@ -111,7 +112,7 @@ func (r *GormRunRepository) ListBySourceID(ctx context.Context, params ListRunsP
 
 func (r *GormRunRepository) FindByUserIDAndID(ctx context.Context, userID, runID int64) (*CollectionRun, error) {
 	var run CollectionRun
-	if err := r.db.WithContext(ctx).
+	if err := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Model(&CollectionRun{}).
 		Joins("JOIN sources ON sources.id = collection_runs.source_id").
 		Where("collection_runs.id = ?", runID).

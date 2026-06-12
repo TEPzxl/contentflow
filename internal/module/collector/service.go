@@ -61,6 +61,7 @@ type CollectionService struct {
 	observer                   CollectionObserver
 	lock                       CollectionLock
 	sourceListCacheInvalidator SourceListCacheInvalidator
+	transactionRunner          TransactionRunner
 	lockTTL                    time.Duration
 	logger                     *slog.Logger
 	now                        func() time.Time
@@ -105,6 +106,12 @@ func WithCollectionLockTTL(ttl time.Duration) Option {
 func WithSourceListCacheInvalidator(invalidator SourceListCacheInvalidator) Option {
 	return func(cs *CollectionService) {
 		cs.sourceListCacheInvalidator = invalidator
+	}
+}
+
+func WithTransactionRunner(runner TransactionRunner) Option {
+	return func(cs *CollectionService) {
+		cs.transactionRunner = runner
 	}
 }
 
@@ -181,33 +188,11 @@ func (s *CollectionService) CollectSource(ctx context.Context, req CollectSource
 		return s.finishFailed(ctx, run.ID, src, startedAt, 0, 0, 0, err)
 	}
 
-	writeResult, err := s.articleWriter.SaveCollectedItems(ctx, items)
+	writeResult, finishedAt, failedResp, err := s.finishSuccess(ctx, run.ID, src, startedAt, items)
 	if err != nil {
-		return s.finishFailed(ctx, run.ID, src, startedAt, len(items), 0, 0, err)
+		return failedResp, err
 	}
 
-	finishedAt := s.now()
-
-	if err := s.runRepo.Finish(ctx, FinishRunParams{
-		RunID:           run.ID,
-		Status:          RunStatusSuccess,
-		FinishedAt:      finishedAt,
-		FetchedCount:    len(items),
-		InsertedCount:   writeResult.InsertedCount,
-		DuplicatedCount: writeResult.DuplicatedCount,
-		ErrorMessage:    "",
-	}); err != nil {
-		return nil, fmt.Errorf("finish collection run success: %w", err)
-	}
-
-	src.LastFetchedAt = &finishedAt
-	src.LastFetchStatus = RunStatusSuccess
-	src.LastFetchMessage = ""
-	src.UpdatedAt = finishedAt
-
-	if err := s.sourceRepo.Update(ctx, src); err != nil {
-		return nil, fmt.Errorf("update source fetch status: %w", err)
-	}
 	s.invalidateSourceListCache(ctx, src.UserID)
 
 	s.observe(ctx, CollectionObservation{
@@ -287,6 +272,59 @@ func (s *CollectionService) GetCollectionRun(ctx context.Context, req GetCollect
 	}, nil
 }
 
+func (s *CollectionService) finishSuccess(
+	ctx context.Context,
+	runID int64,
+	src *source.Source,
+	startedAt time.Time,
+	items []CollectedItem,
+) (*ArticleWriteResult, time.Time, *CollectSourceResponse, error) {
+	var writeResult *ArticleWriteResult
+	var finishedAt time.Time
+	var articleWriteErr error
+
+	err := s.runInFinalizationTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		writeResult, err = s.articleWriter.SaveCollectedItems(txCtx, items)
+		if err != nil {
+			articleWriteErr = err
+			return err
+		}
+
+		finishedAt = s.now()
+		if err := s.runRepo.Finish(txCtx, FinishRunParams{
+			RunID:           runID,
+			Status:          RunStatusSuccess,
+			FinishedAt:      finishedAt,
+			FetchedCount:    len(items),
+			InsertedCount:   writeResult.InsertedCount,
+			DuplicatedCount: writeResult.DuplicatedCount,
+			ErrorMessage:    "",
+		}); err != nil {
+			return fmt.Errorf("finish collection run success: %w", err)
+		}
+
+		src.LastFetchedAt = &finishedAt
+		src.LastFetchStatus = RunStatusSuccess
+		src.LastFetchMessage = ""
+		src.UpdatedAt = finishedAt
+
+		if err := s.sourceRepo.Update(txCtx, src); err != nil {
+			return fmt.Errorf("update source fetch status: %w", err)
+		}
+		return nil
+	})
+	if articleWriteErr != nil {
+		failedResp, failedErr := s.finishFailed(ctx, runID, src, startedAt, len(items), 0, 0, articleWriteErr)
+		return nil, time.Time{}, failedResp, failedErr
+	}
+	if err != nil {
+		return nil, time.Time{}, nil, err
+	}
+
+	return writeResult, finishedAt, nil, nil
+}
+
 func (s *CollectionService) finishFailed(
 	ctx context.Context,
 	runID int64,
@@ -300,25 +338,30 @@ func (s *CollectionService) finishFailed(
 	finishedAt := s.now()
 	errorMessage := cause.Error()
 
-	if err := s.runRepo.Finish(ctx, FinishRunParams{
-		RunID:           runID,
-		Status:          RunStatusFailed,
-		FinishedAt:      finishedAt,
-		FetchedCount:    fetchedCount,
-		InsertedCount:   insertedCount,
-		DuplicatedCount: duplicatedCount,
-		ErrorMessage:    errorMessage,
+	if err := s.runInFinalizationTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.runRepo.Finish(txCtx, FinishRunParams{
+			RunID:           runID,
+			Status:          RunStatusFailed,
+			FinishedAt:      finishedAt,
+			FetchedCount:    fetchedCount,
+			InsertedCount:   insertedCount,
+			DuplicatedCount: duplicatedCount,
+			ErrorMessage:    errorMessage,
+		}); err != nil {
+			return fmt.Errorf("finish collection run failed: %w", err)
+		}
+
+		src.LastFetchedAt = &finishedAt
+		src.LastFetchStatus = RunStatusFailed
+		src.LastFetchMessage = errorMessage
+		src.UpdatedAt = finishedAt
+
+		if err := s.sourceRepo.Update(txCtx, src); err != nil {
+			return fmt.Errorf("update source failed status: %w", err)
+		}
+		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("finish collection run failed: %w", err)
-	}
-
-	src.LastFetchedAt = &finishedAt
-	src.LastFetchStatus = RunStatusFailed
-	src.LastFetchMessage = errorMessage
-	src.UpdatedAt = finishedAt
-
-	if err := s.sourceRepo.Update(ctx, src); err != nil {
-		return nil, fmt.Errorf("update source failed status: %w", err)
+		return nil, err
 	}
 	s.invalidateSourceListCache(ctx, src.UserID)
 
@@ -343,6 +386,13 @@ func (s *CollectionService) finishFailed(
 		DuplicatedCount: duplicatedCount,
 		ErrorMessage:    errorMessage,
 	}, fmt.Errorf("%w: %v", ErrCollectionFailed, cause)
+}
+
+func (s *CollectionService) runInFinalizationTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if s.transactionRunner == nil {
+		return fn(ctx)
+	}
+	return s.transactionRunner.RunInTransaction(ctx, fn)
 }
 
 func (s *CollectionService) invalidateSourceListCache(ctx context.Context, userID int64) {

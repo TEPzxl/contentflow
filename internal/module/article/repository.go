@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tepzxl/contentflow/internal/storage/dbtx"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -67,7 +68,7 @@ func NewRepository(db *gorm.DB) Repository {
 }
 
 func (r *GormRepository) CreateIfNotExists(ctx context.Context, article *Article) (bool, error) {
-	result := r.db.WithContext(ctx).
+	result := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Clauses(clause.OnConflict{
 			DoNothing: true,
 		}).
@@ -162,7 +163,7 @@ func (r *GormRepository) UpsertState(ctx context.Context, params UpsertArticleSt
 		}
 	}
 
-	if err := r.db.WithContext(ctx).
+	if err := dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "user_id"}, {Name: "article_id"}},
 			DoUpdates: assignments,
@@ -181,7 +182,7 @@ func (r *GormRepository) articleQuery(ctx context.Context, userID int64, include
 		contentSelect = "a.content"
 	}
 
-	return r.db.WithContext(ctx).
+	return dbtx.FromContext(ctx, r.db).WithContext(ctx).
 		Table("articles AS a").
 		Select(fmt.Sprintf(`
 				a.id,

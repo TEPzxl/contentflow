@@ -129,6 +129,123 @@ func TestRSSCollectionEndToEnd(t *testing.T) {
 	}
 }
 
+func TestCollectionFinalizationRollsBackArticleWritesWhenSourceStatusUpdateFails(t *testing.T) {
+	db, cleanup := setupCollectorIntegrationDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	feedURL := "https://example.com/rollback-feed.xml"
+	userID := createCollectorIntegrationUser(t, db, "collector-rollback@example.com")
+	sourceRepo := source.NewRepository(db)
+	src := &source.Source{
+		UserID:           userID,
+		Name:             "Rollback Feed",
+		Type:             source.TypeRSS,
+		URL:              &feedURL,
+		ConfigJSON:       datatypes.JSON([]byte(`{}`)),
+		IsActive:         true,
+		LastFetchStatus:  "",
+		LastFetchMessage: "",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := sourceRepo.Create(ctx, src); err != nil {
+		t.Fatalf("create source: %v", err)
+	}
+
+	externalID := "rollback-guid-1"
+	articleURL := "https://example.com/articles/rollback-1"
+	registry, err := collector.NewRegistry(fakeCollector{
+		sourceType: source.TypeRSS,
+		items: []collector.CollectedItem{
+			{
+				UserID:      userID,
+				SourceID:    src.ID,
+				SourceType:  source.TypeRSS,
+				ExternalID:  &externalID,
+				Title:       "Rollback item",
+				URL:         &articleURL,
+				Summary:     "summary",
+				Content:     "content",
+				ContentHash: "rollback-hash-1",
+				PublishedAt: &now,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	articleService := article.NewService(article.NewRepository(db), article.WithNow(func() time.Time { return now }))
+	writer := sourceDeletingArticleWriter{
+		delegate:   articleService,
+		sourceRepo: sourceRepo,
+		userID:     userID,
+		sourceID:   src.ID,
+		deletedAt:  now.Add(time.Minute),
+	}
+	service := collector.NewService(
+		sourceRepo,
+		collector.NewRunRepository(db),
+		registry,
+		writer,
+		collector.WithNow(func() time.Time { return now }),
+		collector.WithTransactionRunner(collector.NewGormTransactionRunner(db)),
+	)
+
+	resp, err := service.CollectSource(ctx, collector.CollectSourceRequest{UserID: userID, SourceID: src.ID})
+	if err == nil {
+		t.Fatalf("CollectSource() error is nil, response = %#v", resp)
+	}
+
+	var articleCount int64
+	if err := db.Model(&article.Article{}).Where("source_id = ?", src.ID).Count(&articleCount).Error; err != nil {
+		t.Fatalf("count articles: %v", err)
+	}
+	if articleCount != 0 {
+		t.Fatalf("article count = %d, want 0 after finalization rollback", articleCount)
+	}
+
+	var run collector.CollectionRun
+	if err := db.Where("source_id = ?", src.ID).First(&run).Error; err != nil {
+		t.Fatalf("find collection run: %v", err)
+	}
+	if run.Status != collector.RunStatusRunning {
+		t.Fatalf("run status = %q, want %q after finalization rollback", run.Status, collector.RunStatusRunning)
+	}
+
+	gotSource, err := sourceRepo.FindByUserIDAndID(ctx, userID, src.ID)
+	if err != nil {
+		t.Fatalf("find source after rollback: %v", err)
+	}
+	if gotSource.DeletedAt != nil {
+		t.Fatalf("source deleted_at = %v, want nil after rollback", gotSource.DeletedAt)
+	}
+	if gotSource.LastFetchStatus != "" {
+		t.Fatalf("LastFetchStatus = %q, want empty after rollback", gotSource.LastFetchStatus)
+	}
+}
+
+type sourceDeletingArticleWriter struct {
+	delegate   collector.ArticleWriter
+	sourceRepo source.Repository
+	userID     int64
+	sourceID   int64
+	deletedAt  time.Time
+}
+
+func (w sourceDeletingArticleWriter) SaveCollectedItems(ctx context.Context, items []collector.CollectedItem) (*collector.ArticleWriteResult, error) {
+	result, err := w.delegate.SaveCollectedItems(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.sourceRepo.SoftDelete(ctx, w.userID, w.sourceID, w.deletedAt); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 type staticFeedFetcher struct {
 	body string
 }
